@@ -20,7 +20,7 @@ shiguredo_video_device = { version = "=2026.1.0-canary.0", default-features = fa
 [build-dependencies]
 bindgen = "0.72"
 cmake = "0.1"
-toml = "0.9"
+shiguredo_toml = "2026.1.0-canary.0"
 
 [workspace]
 members = ["pbt"]

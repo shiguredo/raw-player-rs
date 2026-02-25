@@ -26,26 +26,42 @@ fn git_clone(url: &str, dest: &Path, tag: Option<&str>) {
 
 // Cargo.toml から依存ライブラリの Git URL とタグを取得する
 fn get_git_url_and_tag() -> (String, String) {
-    let cargo_toml: toml::Value =
-        toml::from_str(include_str!("Cargo.toml")).expect("failed to parse Cargo.toml");
-    if let Some((Some(git_url), Some(tag))) = cargo_toml
-        .get("package")
-        .and_then(|v| v.get("metadata"))
-        .and_then(|v| v.get("external-dependencies"))
-        .and_then(|v| v.get(LIB_NAME))
-        .map(|v| {
-            (
-                v.get("git").and_then(|s| s.as_str()),
-                v.get("tag").and_then(|s| s.as_str()),
+    use shiguredo_toml::PathSegment::Key;
+
+    let doc = shiguredo_toml::Document::parse(include_str!("Cargo.toml"))
+        .expect("failed to parse Cargo.toml");
+
+    let git_url = doc
+        .get(&[
+            Key("package".into()),
+            Key("metadata".into()),
+            Key("external-dependencies".into()),
+            Key(LIB_NAME.into()),
+            Key("git".into()),
+        ])
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| {
+            panic!(
+                "Cargo.toml does not contain a valid [package.metadata.external-dependencies.{LIB_NAME}] table"
             )
-        })
-    {
-        (git_url.to_string(), tag.to_string())
-    } else {
-        panic!(
-            "Cargo.toml does not contain a valid [package.metadata.external-dependencies.{LIB_NAME}] table"
-        );
-    }
+        });
+
+    let tag = doc
+        .get(&[
+            Key("package".into()),
+            Key("metadata".into()),
+            Key("external-dependencies".into()),
+            Key(LIB_NAME.into()),
+            Key("tag".into()),
+        ])
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| {
+            panic!(
+                "Cargo.toml does not contain a valid [package.metadata.external-dependencies.{LIB_NAME}] table"
+            )
+        });
+
+    (git_url.to_string(), tag.to_string())
 }
 
 fn main() {
