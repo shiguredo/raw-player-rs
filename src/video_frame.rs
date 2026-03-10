@@ -1,3 +1,4 @@
+use crate::pixel_buffer::PixelBufferRef;
 use crate::video_format::VideoFormat;
 
 pub(crate) enum FrameData {
@@ -7,6 +8,8 @@ pub(crate) enum FrameData {
     SemiPlanar { y: Vec<u8>, uv: Vec<u8> },
     /// YUY2 / RGBA / BGRA: インターリーブ
     Packed(Vec<u8>),
+    /// CVPixelBuffer を直接保持 (macOS ゼロコピー)
+    PixelBuffer(PixelBufferRef),
 }
 
 impl FrameData {
@@ -15,6 +18,7 @@ impl FrameData {
             Self::Planar { y, u, v } => y.len() + u.len() + v.len(),
             Self::SemiPlanar { y, uv } => y.len() + uv.len(),
             Self::Packed(data) => data.len(),
+            Self::PixelBuffer(_) => 0,
         }
     }
 }
@@ -23,6 +27,8 @@ pub(crate) struct VideoFrame {
     pub pts_us: i64,
     pub width: i32,
     pub height: i32,
+    pub y_pitch: i32,
+    pub uv_pitch: i32,
     pub format: VideoFormat,
     pub data: FrameData,
 }

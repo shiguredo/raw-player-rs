@@ -15,7 +15,7 @@ readme = "README.md"
 
 [dev-dependencies]
 shiguredo_audio_device = { version = "=2026.1.0-canary.0", default-features = false }
-shiguredo_video_device = { version = "=2026.1.0-canary.0", default-features = false }
+shiguredo_video_device = { version = "=2026.1.0-canary.3", default-features = false }
 
 [build-dependencies]
 bindgen = "0.72"

@@ -10,7 +10,6 @@
 //! cargo run --example player -- --resolution 1080p --fps 60
 //! ```
 
-use std::borrow::Cow;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -20,11 +19,26 @@ use shiguredo_audio_device::{
     AudioFrameOwned,
 };
 use shiguredo_video_device::{
-    PixelFormat, VideoCapture, VideoCaptureConfig, VideoDeviceList, VideoFrame, VideoFrameOwned,
+    PixelBuffer, PixelFormat, VideoCapture, VideoCaptureConfig, VideoDeviceList, VideoFrame,
+    VideoFrameOwned,
 };
 
+/// pixel_buffer のみを保持する軽量なフレーム情報 (data コピー不要)。
+struct PixelBufferFrame {
+    pixel_buffer: PixelBuffer,
+    pixel_format: PixelFormat,
+    width: i32,
+    height: i32,
+    stride: i32,
+    stride_uv: i32,
+    timestamp_us: i64,
+}
+
 enum CaptureMessage {
+    /// stride 付きデータのコピー (pixel_buffer がない場合)
     Video(VideoFrameOwned),
+    /// CVPixelBuffer を直接保持 (macOS ゼロコピー)
+    VideoPixelBuffer(PixelBufferFrame),
     Audio(AudioFrameOwned),
 }
 
@@ -189,26 +203,6 @@ fn parse_args() -> Args {
     result
 }
 
-/// stride を除去してピクセルデータのみを取り出す。
-/// stride == row_bytes の場合はゼロコピーで借用を返す。
-fn strip_stride<'a>(
-    data: &'a [u8],
-    row_bytes: usize,
-    height: usize,
-    stride: usize,
-) -> Cow<'a, [u8]> {
-    if stride == row_bytes {
-        Cow::Borrowed(&data[..row_bytes * height])
-    } else {
-        let mut result = Vec::with_capacity(row_bytes * height);
-        for row in 0..height {
-            let start = row * stride;
-            result.extend_from_slice(&data[start..start + row_bytes]);
-        }
-        Cow::Owned(result)
-    }
-}
-
 fn map_audio_format(format: DeviceAudioFormat) -> AudioFormat {
     match format {
         DeviceAudioFormat::S16 => AudioFormat::S16,
@@ -268,38 +262,81 @@ fn list_devices() {
     }
 }
 
+/// PixelFormat を raw_player::VideoFormat に変換する。
+fn map_video_format(pf: PixelFormat) -> Option<raw_player::VideoFormat> {
+    match pf {
+        PixelFormat::Nv12 => Some(raw_player::VideoFormat::NV12),
+        PixelFormat::I420 => Some(raw_player::VideoFormat::I420),
+        PixelFormat::Yuy2 => Some(raw_player::VideoFormat::YUY2),
+        PixelFormat::Unknown(_) => None,
+    }
+}
+
 /// VideoFrame の PixelFormat に応じて適切な enqueue メソッドを呼び出す。
+/// pixel_buffer がある場合は CVPixelBuffer をそのまま渡してゼロコピーする。
+/// ない場合は stride 付きデータをコピーして渡す。
 fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_player::Result<()> {
-    let w = frame.width as usize;
-    let h = frame.height as usize;
-    let stride = frame.stride as usize;
-    let stride_uv = frame.stride_uv as usize;
     let pts_us = frame.timestamp_us;
 
+    // macOS: pixel_buffer がある場合はゼロコピーパス
+    if let Some(ref pb) = frame.pixel_buffer {
+        let Some(format) = map_video_format(frame.pixel_format) else {
+            return Ok(());
+        };
+        return unsafe {
+            player.enqueue_video_pixel_buffer(
+                pb.as_ptr(),
+                format,
+                frame.width,
+                frame.height,
+                frame.stride,
+                frame.stride_uv,
+                pts_us,
+            )
+        };
+    }
+
+    // フォールバック: stride 付きデータをコピーして渡す
     match frame.pixel_format {
         PixelFormat::Nv12 => {
-            let y = strip_stride(frame.data, w, h, stride);
             let Some(uv_data) = frame.uv_data else {
                 return Ok(());
             };
-            let uv = strip_stride(uv_data, w, h / 2, stride_uv);
-            player.enqueue_video_nv12(&y, &uv, frame.width, frame.height, pts_us)?;
+            player.enqueue_video_nv12_strided(
+                frame.data,
+                uv_data,
+                frame.width,
+                frame.height,
+                frame.stride,
+                frame.stride_uv,
+                pts_us,
+            )?;
         }
         PixelFormat::I420 => {
-            let y = strip_stride(frame.data, w, h, stride);
             let Some(uv_data) = frame.uv_data else {
                 return Ok(());
             };
-            let uv_w = w / 2;
-            let uv_h = h / 2;
-            let u_plane_size = stride_uv * uv_h;
-            let u = strip_stride(&uv_data[..u_plane_size], uv_w, uv_h, stride_uv);
-            let v = strip_stride(&uv_data[u_plane_size..], uv_w, uv_h, stride_uv);
-            player.enqueue_video_i420(&y, &u, &v, frame.width, frame.height, pts_us)?;
+            let uv_h = frame.height as usize / 2;
+            let u_plane_size = frame.stride_uv as usize * uv_h;
+            player.enqueue_video_i420_strided(
+                frame.data,
+                &uv_data[..u_plane_size],
+                &uv_data[u_plane_size..],
+                frame.width,
+                frame.height,
+                frame.stride,
+                frame.stride_uv,
+                pts_us,
+            )?;
         }
         PixelFormat::Yuy2 => {
-            let data = strip_stride(frame.data, w * 2, h, stride);
-            player.enqueue_video_yuy2(&data, frame.width, frame.height, pts_us)?;
+            player.enqueue_video_yuy2_strided(
+                frame.data,
+                frame.width,
+                frame.height,
+                frame.stride,
+                pts_us,
+            )?;
         }
         PixelFormat::Unknown(_) => {
             use std::sync::Once;
@@ -332,10 +369,25 @@ fn main() {
         width: args.width,
         height: args.height,
         fps: args.fps,
+        pixel_format: None,
     };
     let video_tx = tx.clone();
     let mut video_capture = VideoCapture::new(video_config, move |frame: VideoFrame<'_>| {
-        let _ = video_tx.send(CaptureMessage::Video(frame.to_owned()));
+        if let Some(pb) = frame.pixel_buffer.clone() {
+            // macOS: pixel_buffer があればデータコピーなしで送信
+            let _ = video_tx.send(CaptureMessage::VideoPixelBuffer(PixelBufferFrame {
+                pixel_buffer: pb,
+                pixel_format: frame.pixel_format,
+                width: frame.width,
+                height: frame.height,
+                stride: frame.stride,
+                stride_uv: frame.stride_uv,
+                timestamp_us: frame.timestamp_us,
+            }));
+        } else {
+            // pixel_buffer がない場合はデータをコピーして送信
+            let _ = video_tx.send(CaptureMessage::Video(frame.to_owned()));
+        }
     })
     .expect("VideoCapture の作成に失敗しました");
 
@@ -403,6 +455,24 @@ fn main() {
                 CaptureMessage::Video(owned) => {
                     let frame = owned.as_frame();
                     if let Err(e) = enqueue_video_frame(&player, &frame) {
+                        eprintln!("映像フレームの enqueue に失敗: {e}");
+                    }
+                }
+                CaptureMessage::VideoPixelBuffer(pbf) => {
+                    let Some(format) = map_video_format(pbf.pixel_format) else {
+                        continue;
+                    };
+                    if let Err(e) = unsafe {
+                        player.enqueue_video_pixel_buffer(
+                            pbf.pixel_buffer.as_ptr(),
+                            format,
+                            pbf.width,
+                            pbf.height,
+                            pbf.stride,
+                            pbf.stride_uv,
+                            pbf.timestamp_us,
+                        )
+                    } {
                         eprintln!("映像フレームの enqueue に失敗: {e}");
                     }
                 }

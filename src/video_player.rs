@@ -5,6 +5,7 @@ use crate::audio_format::AudioFormat;
 use crate::audio_player::AudioPlayer;
 use crate::error::{Error, Result};
 use crate::ffi;
+use crate::pixel_buffer::PixelBufferRef;
 use crate::renderer::Renderer;
 use crate::texture::Texture;
 use crate::video_format::VideoFormat;
@@ -71,6 +72,128 @@ pub fn validate_nv12(y: &[u8], uv: &[u8], width: i32, height: i32) -> Result<()>
         return Err(Error::invalid_argument(format!(
             "UV plane size mismatch: expected {expected_uv}, got {}",
             uv.len()
+        )));
+    }
+    Ok(())
+}
+
+/// 入力検証: stride 付き I420 フレームデータのサイズを検証する。
+pub fn validate_i420_strided(
+    y: &[u8],
+    u: &[u8],
+    v: &[u8],
+    width: i32,
+    height: i32,
+    y_pitch: i32,
+    uv_pitch: i32,
+) -> Result<()> {
+    if width <= 0 || height <= 0 {
+        return Err(Error::invalid_argument("width and height must be positive"));
+    }
+    if width % 2 != 0 || height % 2 != 0 {
+        return Err(Error::invalid_argument(
+            "I420 requires even width and height",
+        ));
+    }
+    if y_pitch < width {
+        return Err(Error::invalid_argument(format!(
+            "y_pitch ({y_pitch}) must be >= width ({width})"
+        )));
+    }
+    if uv_pitch < width / 2 {
+        return Err(Error::invalid_argument(format!(
+            "uv_pitch ({uv_pitch}) must be >= width/2 ({})",
+            width / 2
+        )));
+    }
+    let h = height as usize;
+    let expected_y = y_pitch as usize * h;
+    let expected_uv = uv_pitch as usize * (h / 2);
+    if y.len() != expected_y {
+        return Err(Error::invalid_argument(format!(
+            "Y plane size mismatch: expected {expected_y}, got {}",
+            y.len()
+        )));
+    }
+    if u.len() != expected_uv {
+        return Err(Error::invalid_argument(format!(
+            "U plane size mismatch: expected {expected_uv}, got {}",
+            u.len()
+        )));
+    }
+    if v.len() != expected_uv {
+        return Err(Error::invalid_argument(format!(
+            "V plane size mismatch: expected {expected_uv}, got {}",
+            v.len()
+        )));
+    }
+    Ok(())
+}
+
+/// 入力検証: stride 付き NV12 フレームデータのサイズを検証する。
+pub fn validate_nv12_strided(
+    y: &[u8],
+    uv: &[u8],
+    width: i32,
+    height: i32,
+    y_pitch: i32,
+    uv_pitch: i32,
+) -> Result<()> {
+    if width <= 0 || height <= 0 {
+        return Err(Error::invalid_argument("width and height must be positive"));
+    }
+    if width % 2 != 0 || height % 2 != 0 {
+        return Err(Error::invalid_argument(
+            "NV12 requires even width and height",
+        ));
+    }
+    if y_pitch < width {
+        return Err(Error::invalid_argument(format!(
+            "y_pitch ({y_pitch}) must be >= width ({width})"
+        )));
+    }
+    if uv_pitch < width {
+        return Err(Error::invalid_argument(format!(
+            "uv_pitch ({uv_pitch}) must be >= width ({width})"
+        )));
+    }
+    let h = height as usize;
+    let expected_y = y_pitch as usize * h;
+    let expected_uv = uv_pitch as usize * (h / 2);
+    if y.len() != expected_y {
+        return Err(Error::invalid_argument(format!(
+            "Y plane size mismatch: expected {expected_y}, got {}",
+            y.len()
+        )));
+    }
+    if uv.len() != expected_uv {
+        return Err(Error::invalid_argument(format!(
+            "UV plane size mismatch: expected {expected_uv}, got {}",
+            uv.len()
+        )));
+    }
+    Ok(())
+}
+
+/// 入力検証: stride 付き YUY2 フレームデータのサイズを検証する。
+pub fn validate_yuy2_strided(data: &[u8], width: i32, height: i32, pitch: i32) -> Result<()> {
+    if width <= 0 || height <= 0 {
+        return Err(Error::invalid_argument("width and height must be positive"));
+    }
+    if width % 2 != 0 {
+        return Err(Error::invalid_argument("YUY2 requires even width"));
+    }
+    if pitch < width * 2 {
+        return Err(Error::invalid_argument(format!(
+            "pitch ({pitch}) must be >= width*2 ({})",
+            width * 2
+        )));
+    }
+    let expected = pitch as usize * height as usize;
+    if data.len() != expected {
+        return Err(Error::invalid_argument(format!(
+            "YUY2 data size mismatch: expected {expected}, got {}",
+            data.len()
         )));
     }
     Ok(())
@@ -289,6 +412,37 @@ impl VideoPlayer {
             pts_us,
             width,
             height,
+            y_pitch: width,
+            uv_pitch: width / 2,
+            format: VideoFormat::I420,
+            data: FrameData::Planar {
+                y: y.to_vec(),
+                u: u.to_vec(),
+                v: v.to_vec(),
+            },
+        })
+    }
+
+    /// stride 付き I420 フレームをキューに追加する。
+    #[allow(clippy::too_many_arguments)]
+    pub fn enqueue_video_i420_strided(
+        &self,
+        y: &[u8],
+        u: &[u8],
+        v: &[u8],
+        width: i32,
+        height: i32,
+        y_pitch: i32,
+        uv_pitch: i32,
+        pts_us: i64,
+    ) -> Result<()> {
+        validate_i420_strided(y, u, v, width, height, y_pitch, uv_pitch)?;
+        self.enqueue_frame(VideoFrame {
+            pts_us,
+            width,
+            height,
+            y_pitch,
+            uv_pitch,
             format: VideoFormat::I420,
             data: FrameData::Planar {
                 y: y.to_vec(),
@@ -312,6 +466,35 @@ impl VideoPlayer {
             pts_us,
             width,
             height,
+            y_pitch: width,
+            uv_pitch: width,
+            format: VideoFormat::NV12,
+            data: FrameData::SemiPlanar {
+                y: y.to_vec(),
+                uv: uv.to_vec(),
+            },
+        })
+    }
+
+    /// stride 付き NV12 フレームをキューに追加する。
+    #[allow(clippy::too_many_arguments)]
+    pub fn enqueue_video_nv12_strided(
+        &self,
+        y: &[u8],
+        uv: &[u8],
+        width: i32,
+        height: i32,
+        y_pitch: i32,
+        uv_pitch: i32,
+        pts_us: i64,
+    ) -> Result<()> {
+        validate_nv12_strided(y, uv, width, height, y_pitch, uv_pitch)?;
+        self.enqueue_frame(VideoFrame {
+            pts_us,
+            width,
+            height,
+            y_pitch,
+            uv_pitch,
             format: VideoFormat::NV12,
             data: FrameData::SemiPlanar {
                 y: y.to_vec(),
@@ -333,6 +516,29 @@ impl VideoPlayer {
             pts_us,
             width,
             height,
+            y_pitch: width * 2,
+            uv_pitch: 0,
+            format: VideoFormat::YUY2,
+            data: FrameData::Packed(data.to_vec()),
+        })
+    }
+
+    /// stride 付き YUY2 フレームをキューに追加する。
+    pub fn enqueue_video_yuy2_strided(
+        &self,
+        data: &[u8],
+        width: i32,
+        height: i32,
+        pitch: i32,
+        pts_us: i64,
+    ) -> Result<()> {
+        validate_yuy2_strided(data, width, height, pitch)?;
+        self.enqueue_frame(VideoFrame {
+            pts_us,
+            width,
+            height,
+            y_pitch: pitch,
+            uv_pitch: 0,
             format: VideoFormat::YUY2,
             data: FrameData::Packed(data.to_vec()),
         })
@@ -351,6 +557,8 @@ impl VideoPlayer {
             pts_us,
             width,
             height,
+            y_pitch: width * 4,
+            uv_pitch: 0,
             format: VideoFormat::Rgba,
             data: FrameData::Packed(data.to_vec()),
         })
@@ -369,6 +577,8 @@ impl VideoPlayer {
             pts_us,
             width,
             height,
+            y_pitch: width * 4,
+            uv_pitch: 0,
             format: VideoFormat::Bgra,
             data: FrameData::Packed(data.to_vec()),
         })
@@ -387,8 +597,44 @@ impl VideoPlayer {
             pts_us,
             width,
             height,
+            y_pitch: width * 4,
+            uv_pitch: 0,
             format: VideoFormat::Bgra,
             data: FrameData::Packed(data),
+        })
+    }
+
+    /// CVPixelBuffer を直接キューに追加する (macOS ゼロコピー)。
+    ///
+    /// `pixel_buffer_ptr` は `PixelBuffer::as_ptr()` から取得した CVPixelBuffer ポインタ。
+    /// 内部で CFRetain するため、呼び出し元はこの関数の後にポインタ元を drop してよい。
+    ///
+    /// # Safety
+    ///
+    /// `pixel_buffer_ptr` は有効な CVPixelBuffer へのポインタでなければならない。
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn enqueue_video_pixel_buffer(
+        &self,
+        pixel_buffer_ptr: *mut std::ffi::c_void,
+        format: VideoFormat,
+        width: i32,
+        height: i32,
+        y_pitch: i32,
+        uv_pitch: i32,
+        pts_us: i64,
+    ) -> Result<()> {
+        if width <= 0 || height <= 0 {
+            return Err(Error::invalid_argument("width and height must be positive"));
+        }
+        let pixel_buffer_ref = unsafe { PixelBufferRef::from_ptr(pixel_buffer_ptr)? };
+        self.enqueue_frame(VideoFrame {
+            pts_us,
+            width,
+            height,
+            y_pitch,
+            uv_pitch,
+            format,
+            data: FrameData::PixelBuffer(pixel_buffer_ref),
         })
     }
 
@@ -770,17 +1016,39 @@ impl VideoPlayer {
         if let Some(ref mut texture) = inner.texture {
             match &frame.data {
                 FrameData::Planar { y, u, v } => {
-                    texture.update_yuv(y, frame.width, u, frame.width / 2, v, frame.width / 2)?;
+                    texture.update_yuv(y, frame.y_pitch, u, frame.uv_pitch, v, frame.uv_pitch)?;
                 }
                 FrameData::SemiPlanar { y, uv } => {
-                    texture.update_nv12(y, frame.width, uv, frame.width)?;
+                    texture.update_nv12(y, frame.y_pitch, uv, frame.uv_pitch)?;
                 }
                 FrameData::Packed(data) => {
-                    let bpp = match frame.format {
-                        VideoFormat::YUY2 => 2,
-                        _ => 4,
-                    };
-                    texture.update_packed(data, frame.width * bpp)?;
+                    texture.update_packed(data, frame.y_pitch)?;
+                }
+                FrameData::PixelBuffer(pb) => {
+                    let lock = pb.lock()?;
+                    match frame.format {
+                        VideoFormat::NV12 => {
+                            let y = lock.plane(0);
+                            let uv = lock.plane(1);
+                            let y_pitch = lock.stride(0);
+                            let uv_pitch = lock.stride(1);
+                            texture.update_nv12(y, y_pitch, uv, uv_pitch)?;
+                        }
+                        VideoFormat::I420 => {
+                            let y = lock.plane(0);
+                            let u = lock.plane(1);
+                            let v = lock.plane(2);
+                            let y_pitch = lock.stride(0);
+                            let uv_pitch = lock.stride(1);
+                            texture.update_yuv(y, y_pitch, u, uv_pitch, v, uv_pitch)?;
+                        }
+                        _ => {
+                            return Err(Error::invalid_argument(format!(
+                                "PixelBuffer does not support format: {}",
+                                frame.format.name()
+                            )));
+                        }
+                    }
                 }
             }
         }

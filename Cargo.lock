@@ -570,9 +570,9 @@ checksum = "1eee462e5916db9d042d3e5eec76085f9fa65781d19e965ea6af02c362c13495"
 
 [[package]]
 name = "shiguredo_video_device"
-version = "2026.1.0-canary.0"
+version = "2026.1.0-canary.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52185d09b5003185bc01e6e93577a74eae3a21274ce6b1fc9cbc5af9ef02fc00"
+checksum = "08f36c1e6940b6f72753d0cd869af28603a121c4f9666074acc396531b8c66a4"
 dependencies = [
  "bindgen",
  "cc",

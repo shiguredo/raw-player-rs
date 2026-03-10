@@ -6,6 +6,7 @@ mod audio_stream;
 mod error;
 mod event;
 mod ffi;
+mod pixel_buffer;
 mod renderer;
 mod texture;
 mod video_format;
@@ -17,12 +18,13 @@ pub use audio_format::AudioFormat;
 pub use audio_player::{AudioPlayer, AudioPlayerStats};
 pub use error::{Error, Result};
 pub use event::{Event, KEYCODE_ESCAPE, KEYCODE_S, poll_event};
+pub use pixel_buffer::PixelBufferRef;
 pub use renderer::Renderer;
 pub use texture::Texture;
 pub use video_format::VideoFormat;
 pub use video_player::{
-    VideoPlayer, VideoPlayerStats, validate_bgra, validate_i420, validate_nv12, validate_rgba,
-    validate_yuy2,
+    VideoPlayer, VideoPlayerStats, validate_bgra, validate_i420, validate_i420_strided,
+    validate_nv12, validate_nv12_strided, validate_rgba, validate_yuy2, validate_yuy2_strided,
 };
 pub use window::Window;
 
