@@ -19,8 +19,8 @@ shiguredo_video_device = { version = "=2026.1.0-canary.3", default-features = fa
 
 [build-dependencies]
 bindgen = "0.72"
-cmake = "0.1"
-shiguredo_toml = "2026.1.0-canary.0"
+shiguredo_cmake = "4.3.0"
+shiguredo_toml = "2026.1.0"
 
 [workspace]
 members = ["pbt"]
@@ -28,4 +28,4 @@ members = ["pbt"]
 # 以降は外部ライブラリビルド用のメタデータ
 # (この内容は build.rs の中からのみ参照される)
 [package.metadata.external-dependencies]
-sdl3 = { git = "https://github.com/libsdl-org/SDL.git", tag = "release-3.4.0" }
+sdl3 = { git = "https://github.com/libsdl-org/SDL.git", tag = "release-3.4.2" }

@@ -78,9 +78,11 @@ fn main() {
     }
 
     // Build SDL3 with cmake
+    // shiguredo_cmake がダウンロード済みバイナリを CMAKE 環境変数に設定する
+    shiguredo_cmake::set_cmake_env();
     // profile("Release") を使用: Windows の Visual Studio ジェネレーター (マルチ構成) では
     // CMAKE_BUILD_TYPE が無視されるため、cmake crate の profile() で統一的に指定する
-    let dst = cmake::Config::new(&sdl3_dir)
+    let dst = shiguredo_cmake::Config::new(&sdl3_dir)
         .define("SDL_STATIC", "ON")
         .define("SDL_SHARED", "OFF")
         .define("SDL_TEST_LIBRARY", "OFF")
