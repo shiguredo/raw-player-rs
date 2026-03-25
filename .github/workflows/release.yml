@@ -43,7 +43,7 @@ jobs:
       - name: Install SDL3 build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libclang-dev libasound2-dev libpulse-dev libxrandr-dev libxfixes-dev libxi-dev
+          sudo apt-get install -y libclang-dev libasound2-dev libx11-dev libxext-dev libxfixes-dev libxrandr-dev
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
       - run: cargo publish
