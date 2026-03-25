@@ -96,7 +96,6 @@ fn main() {
         .define("SDL_CAMERA", "OFF")
         .define("SDL_X11_XCURSOR", "OFF")
         .define("SDL_X11_XDBE", "OFF")
-        .define("SDL_X11_XINPUT", "OFF")
         .define("SDL_X11_XSCRNSAVER", "OFF")
         .define("SDL_X11_XSHAPE", "OFF")
         .define("SDL_X11_XSYNC", "OFF")

@@ -41,7 +41,7 @@ jobs:
         # libx11-dev / libxext-dev: SDL3 の X11 ウィンドウ表示に必要
         # libxfixes-dev: SDL3 の X11 XFIXES (カーソル表示/非表示制御) に必要
         # libxrandr-dev: SDL3 の X11 XRANDR (ディスプレイモード取得・マルチモニタ対応) に必要
-        # libxi-dev: SDL3 の X11 ビルド時に pkg-config 解決で必要
+        # libxi-dev: SDL3 の X11 XINPUT に必要
         run: sudo apt-get update && sudo apt-get install -y libclang-dev libasound2-dev libpulse-dev libx11-dev libxext-dev libxfixes-dev libxrandr-dev libxi-dev
 
       - run: cargo fmt --all --check
