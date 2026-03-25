@@ -10,6 +10,7 @@ description = "Raw audio/video player for Rust"
 homepage = "https://github.com/shiguredo/raw-player-rs"
 repository = "https://github.com/shiguredo/raw-player-rs"
 readme = "README.md"
+include = ["/src/**", "/build.rs", "/LICENSE", "/README.md"]
 
 [dependencies]
 
