@@ -34,6 +34,8 @@ PCM / I420 / NV12 / YUY2 / RGBA / BGRA データを PTS (Presentation Timestamp)
 - PTS ベース音声をマスタークロックとした映像同期機能
 - GPU レンダリング (SDL3)
 - 統計オーバーレイ表示
+- prebuilt バイナリによる高速ビルド (デフォルト)
+- ソースからのビルドも可能 (`--features source-build`)
 
 ## 対応プラットフォーム
 
@@ -45,6 +47,22 @@ PCM / I420 / NV12 / YUY2 / RGBA / BGRA データを PTS (Presentation Timestamp)
 - Ubuntu 22.04 arm64
 - Windows Server 2025 x86_64
 - Windows 11 x86_64
+
+## ビルド
+
+デフォルトでは GitHub Releases から prebuilt バイナリをダウンロードしてビルドします。
+
+```bash
+cargo build
+```
+
+### ソースからビルド
+
+SDL3 をソースからビルドする場合は `source-build` feature を有効にしてください。
+
+```bash
+cargo build --features source-build
+```
 
 ## 機能
 
