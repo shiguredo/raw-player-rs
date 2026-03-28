@@ -12,6 +12,9 @@ repository = "https://github.com/shiguredo/raw-player-rs"
 readme = "README.md"
 include = ["/src/**", "/build.rs", "/LICENSE", "/README.md"]
 
+[features]
+source-build = []
+
 [dependencies]
 
 [dev-dependencies]

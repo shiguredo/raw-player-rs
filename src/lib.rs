@@ -31,6 +31,12 @@ pub use window::Window;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::{AcqRel, Release};
 
+/// ビルド時に参照したリポジトリ URL
+pub const BUILD_REPOSITORY: &str = ffi::BUILD_METADATA_REPOSITORY;
+
+/// ビルド時に参照したリポジトリのバージョン（タグ）
+pub const BUILD_VERSION: &str = ffi::BUILD_METADATA_VERSION;
+
 /// ブレンドモード: アルファブレンド。
 #[allow(clippy::unnecessary_cast)]
 pub const BLENDMODE_BLEND: u32 = ffi::SDL_BLENDMODE_BLEND as u32;

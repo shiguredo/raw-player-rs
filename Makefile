@@ -2,11 +2,11 @@
 
 # 全テストを実行する
 test:
-	cargo test --workspace
+	cargo test --workspace --features source-build
 
 # 全テストカバレッジ付きで実行する
 cover:
-	cargo llvm-cov --tests --workspace
+	cargo llvm-cov --tests --workspace --features source-build
 
 # PBT をカバレッジ付きで実行する
 pbt-with-cover:
@@ -43,11 +43,11 @@ fuzzing-list:
 
 # cargo check を実行する
 check:
-	cargo check --workspace
+	cargo check --workspace --features source-build
 
 # cargo clippy を実行する
 clippy:
-	cargo clippy --workspace -- -D warnings
+	cargo clippy --workspace --features source-build -- -D warnings
 
 # cargo fmt を実行する
 fmt:
