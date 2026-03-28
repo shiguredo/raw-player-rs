@@ -1,4 +1,4 @@
-.PHONY: test cover pbt pbt-cover fuzz fuzzing fuzzing-parallel fuzzing-list check clippy fmt clean
+.PHONY: test cover pbt pbt-cover fuzz fuzzing fuzzing-parallel fuzzing-list clippy fmt clean
 
 # 全テストを実行する
 test:
@@ -40,10 +40,6 @@ fuzzing-parallel:
 # Fuzzing ターゲット一覧を表示する
 fuzzing-list:
 	cargo fuzz list
-
-# cargo check を実行する
-check:
-	cargo check --workspace --features source-build
 
 # cargo clippy を実行する
 clippy:
