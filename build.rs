@@ -11,6 +11,7 @@ fn main() {
     println!("cargo::rerun-if-changed=Cargo.toml");
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-env-changed=CARGO_FEATURE_SOURCE_BUILD");
+    println!("cargo::rerun-if-env-changed=DOCS_RS");
 
     // 各種変数やビルドディレクトリのセットアップ
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("infallible"));
@@ -53,8 +54,8 @@ fn main() {
                 "pub const SDL_EventType_SDL_EVENT_QUIT: u32 = 0x100;\n",
                 "pub const SDL_EventType_SDL_EVENT_KEY_DOWN: u32 = 0x300;\n",
                 "pub const SDL_EventType_SDL_EVENT_KEY_UP: u32 = 0x301;\n",
-                "pub const SDL_EventType_SDL_EVENT_WINDOW_RESIZED: u32 = 0x207;\n",
-                "pub const SDL_EventType_SDL_EVENT_WINDOW_CLOSE_REQUESTED: u32 = 0x202;\n",
+                "pub const SDL_EventType_SDL_EVENT_WINDOW_RESIZED: u32 = 0x206;\n",
+                "pub const SDL_EventType_SDL_EVENT_WINDOW_CLOSE_REQUESTED: u32 = 0x210;\n",
                 // キーコード定数
                 "pub const SDLK_ESCAPE: u32 = 27;\n",
                 "pub const SDLK_S: u32 = 115;\n",
@@ -71,7 +72,7 @@ fn main() {
     let output_lib_dir = if should_use_prebuilt() {
         download_prebuilt(&out_dir, &output_bindings_path)
     } else {
-        build_from_source(&out_dir, &output_bindings_path, &tag)
+        build_from_source(&out_dir, &output_bindings_path, &git_url, &tag)
     };
 
     // リンク設定
@@ -194,13 +195,17 @@ fn download_prebuilt(out_dir: &Path, output_bindings_path: &Path) -> PathBuf {
 }
 
 // ソースからビルドする
-fn build_from_source(out_dir: &Path, output_bindings_path: &Path, tag: &str) -> PathBuf {
+fn build_from_source(
+    out_dir: &Path,
+    output_bindings_path: &Path,
+    git_url: &str,
+    tag: &str,
+) -> PathBuf {
     let src_dir = out_dir.join("SDL");
 
     // git clone でソースを取得する（キャッシュ機構: CMakeLists.txt が存在しない場合のみ）
     if !src_dir.join("CMakeLists.txt").exists() {
-        let (git_url, _) = get_git_url_and_tag();
-        git_clone(&git_url, tag, &src_dir);
+        git_clone(git_url, tag, &src_dir);
     }
 
     // shiguredo_cmake が管理する CMake バイナリを使用する
