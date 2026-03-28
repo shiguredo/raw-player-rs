@@ -32,4 +32,4 @@ members = ["pbt"]
 # 以降は外部ライブラリビルド用のメタデータ
 # (この内容は build.rs の中からのみ参照される)
 [package.metadata.external-dependencies]
-sdl3 = { git = "https://github.com/libsdl-org/SDL.git", tag = "release-3.4.2" }
+sdl3 = { url = "https://github.com/libsdl-org/SDL", tag = "release-3.4.2" }

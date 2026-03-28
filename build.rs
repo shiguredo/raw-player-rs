@@ -19,7 +19,7 @@ fn main() {
     let output_bindings_path = out_dir.join("bindings.rs");
 
     // 各種メタデータを書き込む
-    let (git_url, tag) = get_git_url_and_tag();
+    let (url, tag) = get_url_and_tag();
     std::fs::write(
         output_metadata_path,
         format!(
@@ -27,7 +27,7 @@ fn main() {
                 "pub const BUILD_METADATA_REPOSITORY: &str={:?};\n",
                 "pub const BUILD_METADATA_VERSION: &str={:?};\n",
             ),
-            git_url, tag
+            url, tag
         ),
     )
     .expect("failed to write metadata file");
@@ -72,7 +72,7 @@ fn main() {
     let output_lib_dir = if should_use_prebuilt() {
         download_prebuilt(&out_dir, &output_bindings_path)
     } else {
-        build_from_source(&out_dir, &output_bindings_path, &git_url, &tag)
+        build_from_source(&out_dir, &output_bindings_path, &url, &tag)
     };
 
     // リンク設定
@@ -195,17 +195,12 @@ fn download_prebuilt(out_dir: &Path, output_bindings_path: &Path) -> PathBuf {
 }
 
 // ソースからビルドする
-fn build_from_source(
-    out_dir: &Path,
-    output_bindings_path: &Path,
-    git_url: &str,
-    tag: &str,
-) -> PathBuf {
+fn build_from_source(out_dir: &Path, output_bindings_path: &Path, url: &str, tag: &str) -> PathBuf {
     let src_dir = out_dir.join("SDL");
 
     // git clone でソースを取得する（キャッシュ機構: CMakeLists.txt が存在しない場合のみ）
     if !src_dir.join("CMakeLists.txt").exists() {
-        git_clone(git_url, tag, &src_dir);
+        git_clone(url, tag, &src_dir);
     }
 
     // shiguredo_cmake が管理する CMake バイナリを使用する
@@ -496,22 +491,22 @@ fn get_metadata() -> shiguredo_toml::Value {
     )
 }
 
-// Cargo.toml から依存ライブラリの Git URL とタグを取得する
-fn get_git_url_and_tag() -> (String, String) {
+// Cargo.toml から依存ライブラリの URL とタグを取得する
+fn get_url_and_tag() -> (String, String) {
     let cargo_toml = get_metadata();
-    if let Some((Some(git_url), Some(tag))) = cargo_toml
+    if let Some((Some(url), Some(tag))) = cargo_toml
         .get("package")
         .and_then(|v| v.get("metadata"))
         .and_then(|v| v.get("external-dependencies"))
         .and_then(|v| v.get(LIB_NAME))
         .map(|v| {
             (
-                v.get("git").and_then(|s| s.as_str()),
+                v.get("url").and_then(|s| s.as_str()),
                 v.get("tag").and_then(|s| s.as_str()),
             )
         })
     {
-        (git_url.to_string(), tag.to_string())
+        (url.to_string(), tag.to_string())
     } else {
         panic!(
             "Cargo.toml does not contain a valid [package.metadata.external-dependencies.{LIB_NAME}] table"
