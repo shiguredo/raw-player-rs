@@ -11,6 +11,12 @@
 
 ## develop
 
+- [ADD] prebuilt バイナリのダウンロードに対応する
+  - @voluntas
+- [ADD] `BUILD_REPOSITORY` / `BUILD_VERSION` 定数を公開する
+  - @voluntas
+- [ADD] docs.rs ビルドに対応する
+  - @voluntas
 - [CHANGE] 再生停止中にデータを投入した場合に `Error::NotPlaying` エラーを返すようにする
   - @voluntas
 - [FIX] `AudioPlayer::stop()` が `has_played` をリセットしない問題を修正する
