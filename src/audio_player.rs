@@ -104,7 +104,7 @@ impl AudioPlayer {
         let mut inner = self.inner.lock().unwrap();
 
         if inner.has_played && !inner.playing {
-            return Ok(());
+            return Err(Error::NotPlaying);
         }
 
         inner.total_samples_enqueued += num_samples;
@@ -152,6 +152,7 @@ impl AudioPlayer {
     pub fn stop(&self) -> Result<()> {
         let mut inner = self.inner.lock().unwrap();
         inner.playing = false;
+        inner.has_played = false;
         inner.audio_queue.clear();
         if let Some(ref mut stream) = inner.stream {
             stream.pause()?;
@@ -347,6 +348,9 @@ impl AudioPlayer {
                 inner.channels = chunk.channels;
                 inner.is_float = chunk.format.is_float();
                 inner.samples_written = 0;
+                // フォーマット変更は新しい再生系列なのでクロック基準を更新する
+                inner.first_pts_us = chunk.pts_us;
+                inner.audio_started = true;
             }
 
             if !inner.audio_started {

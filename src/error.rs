@@ -5,6 +5,8 @@ use std::ffi::CStr;
 pub enum Error {
     Sdl(String),
     InvalidArgument(String),
+    /// 再生が停止中のためデータを受け付けられない
+    NotPlaying,
 }
 
 impl Error {
@@ -27,6 +29,7 @@ impl Error {
     pub fn message(&self) -> &str {
         match self {
             Self::Sdl(msg) | Self::InvalidArgument(msg) => msg,
+            Self::NotPlaying => "player is not playing",
         }
     }
 }
@@ -36,6 +39,7 @@ impl std::fmt::Display for Error {
         match self {
             Self::Sdl(msg) => write!(f, "SDL error: {msg}"),
             Self::InvalidArgument(msg) => write!(f, "Invalid argument: {msg}"),
+            Self::NotPlaying => write!(f, "Player is not playing"),
         }
     }
 }

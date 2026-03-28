@@ -28,3 +28,9 @@ Model: Opus 4.6
 ## 修正方針
 
 フォーマット変更ブロック (`src/audio_player.rs:337-350`) 内で `first_pts_us` を新しいチャンクの `chunk.pts_us` に明示的に更新し、`samples_written = 0` と合わせて新しい再生系列の基準を設定する。「フォーマット変更 = 新しい再生系列」という意図をコード上で明示する。
+
+## 解決方法
+
+Completed: 2026-03-28
+
+フォーマット変更ブロック内で `first_pts_us = chunk.pts_us` と `audio_started = true` を設定し、新しい再生系列のクロック基準を明示的に更新するようにした。

@@ -923,7 +923,7 @@ impl VideoPlayer {
         let mut inner = self.inner.lock().unwrap();
 
         if inner.has_played && !inner.playing {
-            return Ok(());
+            return Err(Error::NotPlaying);
         }
 
         inner.last_frame_size_bytes = frame_size_bytes;

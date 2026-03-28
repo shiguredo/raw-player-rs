@@ -23,3 +23,9 @@ Model: Opus 4.6
 ## 修正方針
 
 `AudioPlayer::stop()` に `inner.has_played = false;` を追加する。
+
+## 解決方法
+
+Completed: 2026-03-28
+
+`AudioPlayer::stop()` に `inner.has_played = false;` を追加した。`VideoPlayer::stop()` と同様に、停止時に再生状態を完全に初期化するようにした。

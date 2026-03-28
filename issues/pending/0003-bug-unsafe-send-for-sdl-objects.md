@@ -25,9 +25,16 @@ unsafe impl Send for Window {}
 
 Mutex による排他制御は「同時アクセス」を防ぐだけで、「別スレッドから触ってよい」(スレッドアフィニティ) の証明にはならない。safe Rust の利用者は `Send` が付いている以上、別スレッドに移動しても安全だと信頼する。その信頼に対する根拠が存在しない。
 
+## SDL3 ソース確認結果
+
+`SDL3/SDL_render.h` および `SDL3/SDL_video.h` の全関数に `\threadsafety This function should only be called on the main thread.` と明記されている。SDL3 でもスレッドアフィニティの要件は SDL2 と同一であり、メインスレッドからのみ操作すべき。
+
+したがって、現状の `unsafe impl Send` は正当化できない。
+
 ## 修正方針
 
-SDL3 のドキュメントで `SDL_Renderer` / `SDL_Window` のスレッドセーフ性を確認する。
+`Send` を外し、`VideoPlayer` のアーキテクチャを見直す必要がある。`Renderer` と `Window` から `Send` を外すと `VideoPlayerInner` が `Send` でなくなり、`Mutex<VideoPlayerInner>` が `Send + Sync` でなくなるため、`VideoPlayer` を別スレッドに移動できなくなる。設計変更の影響範囲が大きいため pending とする。
 
-- スレッドセーフである場合: SAFETY コメントを正確な根拠に書き直す
-- スレッドアフィニティが必要な場合: `Send` を外し、アーキテクチャを見直す
+## pending の理由
+
+修正にはアーキテクチャの見直しが必要で、単純なバグ修正では済まない。`VideoPlayer` の生成と操作をメインスレッドに限定する設計への変更が必要だが、利用側への影響も大きいため慎重に検討する。
