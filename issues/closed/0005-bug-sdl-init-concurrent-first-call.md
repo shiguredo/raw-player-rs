@@ -1,6 +1,7 @@
 # SDL の `init()` が並行初回呼び出しで完了前に成功を返し得る
 
 Created: 2026-04-02
+Completed: 2026-04-02
 Model: Composer 2 Fast
 
 ## なぜ対応が必要か
@@ -22,3 +23,7 @@ Model: Composer 2 Fast
 ## 関連
 
 `issues/pending/0003-bug-unsafe-send-for-sdl-objects.md` の「メインスレッド限定」方針と整理すると重複が減る。
+
+## 解決方法
+
+`AtomicBool` の先取りフラグをやめ、`Mutex<bool>` で初期化済みフラグと `SDL_Init` / `SDL_Quit` のクリティカルセクションを守るようにした。`init()` はロック取得後に未初期化なら `SDL_Init` を呼び成功時のみ `true` を立てる。`quit()` も同じロックで `SDL_Quit` と `false` に戻す。これで別スレッドが同時に初回 `init()` しても、先に入ったスレッドの `SDL_Init` 完了まで後続はブロックされる。`quit` 後の再 `init` も従来どおり可能。

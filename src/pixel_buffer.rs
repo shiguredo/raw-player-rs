@@ -7,6 +7,14 @@ use std::ffi::c_void;
 
 use crate::error::{Error, Result};
 
+/// プレーンのバイト長 `stride * height`（`from_raw_parts` の第 2 引数用）。
+/// オーバーフロー時は `Err` とし、未定義動作を避ける。
+pub(crate) fn plane_buffer_len(stride: usize, height: usize) -> Result<usize> {
+    stride.checked_mul(height).ok_or_else(|| {
+        Error::invalid_argument("CVPixelBuffer plane byte length overflow (stride * height)")
+    })
+}
+
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn CFRetain(cf: *const c_void) -> *const c_void;
@@ -114,18 +122,26 @@ pub(crate) struct PixelBufferLock<'a> {
 impl<'a> PixelBufferLock<'a> {
     /// 指定プレーンのバイト列を返す。
     #[cfg(target_os = "macos")]
-    pub fn plane(&self, index: usize) -> &[u8] {
+    pub fn plane(&self, index: usize) -> Result<&[u8]> {
         unsafe {
             let ptr = CVPixelBufferGetBaseAddressOfPlane(self.buffer.ptr, index);
+            if ptr.is_null() {
+                return Err(Error::invalid_argument(
+                    "CVPixelBuffer plane base address is null",
+                ));
+            }
             let stride = CVPixelBufferGetBytesPerRowOfPlane(self.buffer.ptr, index);
             let height = CVPixelBufferGetHeightOfPlane(self.buffer.ptr, index);
-            std::slice::from_raw_parts(ptr, stride * height)
+            let len = plane_buffer_len(stride, height)?;
+            Ok(std::slice::from_raw_parts(ptr, len))
         }
     }
 
     #[cfg(not(target_os = "macos"))]
-    pub fn plane(&self, _index: usize) -> &[u8] {
-        unreachable!("PixelBufferLock is only available on macOS")
+    pub fn plane(&self, _index: usize) -> Result<&[u8]> {
+        Err(Error::invalid_argument(
+            "PixelBufferLock is only available on macOS",
+        ))
     }
 
     /// 指定プレーンの stride (バイト/行) を返す。
@@ -146,5 +162,20 @@ impl Drop for PixelBufferLock<'_> {
         unsafe {
             CVPixelBufferUnlockBaseAddress(self.buffer.ptr, K_CV_PIXEL_BUFFER_LOCK_READ_ONLY);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plane_buffer_len;
+
+    #[test]
+    fn plane_buffer_len_ok() {
+        assert_eq!(plane_buffer_len(640, 480).unwrap(), 640 * 480);
+    }
+
+    #[test]
+    fn plane_buffer_len_overflow_is_err() {
+        assert!(plane_buffer_len(usize::MAX, 2).is_err());
     }
 }

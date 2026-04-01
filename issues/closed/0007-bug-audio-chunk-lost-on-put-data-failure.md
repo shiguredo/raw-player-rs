@@ -1,6 +1,7 @@
 # `put_data` 失敗時に音声チャンクがキューから失われる
 
 Created: 2026-04-02
+Completed: 2026-04-02
 Model: Composer 2 Fast
 
 ## なぜ対応が必要か
@@ -19,3 +20,7 @@ Model: Composer 2 Fast
 - 失敗時に `push_front` で戻す、または
 - `put_data` 成功までチャンクを手元に保持する、または
 - 仕様として欠落を許容するならドキュメントとエラー型で明示する。
+
+## 解決方法
+
+`process_audio_queue` 内で、`AudioStream::open`・`set_gain`・`resume`・`put_data` のいずれかが `Err` を返したときに、すでに `pop_front` したチャンクを `push_front` でキュー先頭へ戻してから `Err` を返すようにした。これにより一時的な SDL エラーでも PCM チャンクが黙って失われない。

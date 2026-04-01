@@ -338,10 +338,22 @@ impl AudioPlayer {
             if inner.stream.is_none() || format_changed {
                 inner.stream = None;
                 let mut stream =
-                    AudioStream::open(chunk.sample_rate, chunk.channels, chunk.format)?;
-                stream.set_gain(inner.volume)?;
-                if inner.playing {
-                    stream.resume()?;
+                    match AudioStream::open(chunk.sample_rate, chunk.channels, chunk.format) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            inner.audio_queue.push_front(chunk);
+                            return Err(e);
+                        }
+                    };
+                if let Err(e) = stream.set_gain(inner.volume) {
+                    inner.audio_queue.push_front(chunk);
+                    return Err(e);
+                }
+                if inner.playing
+                    && let Err(e) = stream.resume()
+                {
+                    inner.audio_queue.push_front(chunk);
+                    return Err(e);
                 }
                 inner.stream = Some(stream);
                 inner.sample_rate = chunk.sample_rate;
@@ -366,8 +378,11 @@ impl AudioPlayer {
                 0
             };
 
-            if let Some(ref mut stream) = inner.stream {
-                stream.put_data(&chunk.data)?;
+            if let Some(ref mut stream) = inner.stream
+                && let Err(e) = stream.put_data(&chunk.data)
+            {
+                inner.audio_queue.push_front(chunk);
+                return Err(e);
             }
 
             inner.samples_written += num_samples;
@@ -380,5 +395,21 @@ impl AudioPlayer {
 impl Default for AudioPlayer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::VecDeque;
+
+    /// `process_audio_queue` がストリームエラー時に行う `pop_front` → 失敗 → `push_front` と同じ順序不変条件。
+    /// SDL を使わず退行を検知する最小モデル。
+    #[test]
+    fn requeue_after_pop_restores_queue_order() {
+        let mut q = VecDeque::from([1u32, 2, 3]);
+        let c = q.pop_front().unwrap();
+        assert_eq!(c, 1);
+        q.push_front(c);
+        assert_eq!(q.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
     }
 }

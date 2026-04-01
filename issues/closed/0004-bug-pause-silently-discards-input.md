@@ -1,6 +1,7 @@
 # pause 中の入力を Ok(()) で黙殺している
 
 Created: 2026-03-28
+Completed: 2026-03-28
 Model: Opus 4.6
 
 ## 概要
@@ -32,7 +33,5 @@ if inner.has_played && !inner.playing {
 エラーを返すか、戻り値で破棄されたことを明示する。蓄積方針は別途検討する。
 
 ## 解決方法
-
-Completed: 2026-03-28
 
 `Error::NotPlaying` バリアントを追加し、`enqueue_audio()` と `enqueue_frame()` で `has_played && !playing` のとき `Ok(())` の代わりに `Err(Error::NotPlaying)` を返すようにした。呼び出し側が再生停止中であることを認識できるようになった。

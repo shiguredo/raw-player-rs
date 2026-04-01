@@ -1,6 +1,7 @@
 # `PixelBufferLock::plane` が `from_raw_parts` の前提をコード上保証していない
 
 Created: 2026-04-02
+Completed: 2026-04-02
 Model: Composer 2 Fast
 
 ## なぜ対応が必要か
@@ -20,3 +21,7 @@ Model: Composer 2 Fast
 - `ptr.is_null()` のときはエラーにするか空スライス方針を決める（通常はエラー）。
 - `stride` と `height` から長さを `checked_mul` で計算し、失敗時はエラー。
 - 必要に応じてプレーンサイズを API で再検証する。
+
+## 解決方法
+
+`PixelBufferLock::plane` を `Result<&[u8]>` に変更し、`CVPixelBufferGetBaseAddressOfPlane` の戻りがヌルのときは `Error::invalid_argument` を返すようにした。バイト長は `stride.checked_mul(height)` で計算し、オーバーフロー時も同様にエラーとする。`VideoPlayer` の CVPixelBuffer 描画経路では `plane(...)?` で伝播する。非 macOS 用スタブは `Err` を返すようにした。

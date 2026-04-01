@@ -23,6 +23,15 @@
   - @voluntas
 - [FIX] 音声フォーマット変更時にクロック基準 (`first_pts_us`) が更新されない問題を修正する
   - @voluntas
+- [FIX] `PixelBufferLock::plane` でプレーン先頭ポインタのヌルと `stride * height` のオーバーフローを検証する
+  - @voluntas
+- [FIX] `AudioStream` への書き込みやストリーム開設が失敗したときに dequeue した音声チャンクをキューへ戻す
+  - @voluntas
+- [FIX] `init()` / `quit()` で SDL 初期化状態を `Mutex` で守り、並行初回 `init` で `SDL_Init` 完了前に成功を返さないようにする
+  - @voluntas
 
 ### misc
+
+- `plane_buffer_len` の単体テスト、Linux 向け並行 `init` テスト、`process_audio_queue` のキュー復帰と同じ順序のモデルテストを追加する
+  - @voluntas
 
