@@ -1,5 +1,7 @@
 use std::ffi::{CStr, CString};
+use std::marker::PhantomData;
 use std::ptr::NonNull;
+use std::sync::MutexGuard;
 
 use crate::error::{Error, Result};
 use crate::ffi;
@@ -8,13 +10,18 @@ use crate::window::Window;
 
 pub struct Renderer {
     raw: NonNull<ffi::SDL_Renderer>,
+    // SDL_Renderer はスレッドアフィニティがあり、Mutex による排他だけでは Send にできない。
+    _not_send: PhantomData<MutexGuard<'static, ()>>,
 }
 
 impl Renderer {
     pub fn new(window: &Window) -> Result<Self> {
         let raw = unsafe { ffi::SDL_CreateRenderer(window.as_ptr(), std::ptr::null()) };
         NonNull::new(raw)
-            .map(|raw| Self { raw })
+            .map(|raw| Self {
+                raw,
+                _not_send: PhantomData,
+            })
             .ok_or_else(Error::from_sdl)
     }
 
@@ -24,7 +31,10 @@ impl Renderer {
             CString::new(name).map_err(|_| Error::invalid_argument("name contains null byte"))?;
         let raw = unsafe { ffi::SDL_CreateRenderer(window.as_ptr(), c_name.as_ptr()) };
         NonNull::new(raw)
-            .map(|raw| Self { raw })
+            .map(|raw| Self {
+                raw,
+                _not_send: PhantomData,
+            })
             .ok_or_else(Error::from_sdl)
     }
 
@@ -191,7 +201,3 @@ impl Drop for Renderer {
         unsafe { ffi::SDL_DestroyRenderer(self.raw.as_ptr()) };
     }
 }
-
-// SAFETY: SDL_Renderer は作成元スレッド以外からの操作を想定していないが、
-// Mutex<VideoPlayerInner> 内に保持し排他アクセスを保証しているため Send は安全。
-unsafe impl Send for Renderer {}

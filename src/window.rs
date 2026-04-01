@@ -1,7 +1,9 @@
 use crate::error::{Error, Result};
 use crate::ffi;
 use std::ffi::CString;
+use std::marker::PhantomData;
 use std::ptr::NonNull;
+use std::sync::MutexGuard;
 
 // bindgen は SDL3 の `#define` マクロ定数を生成しないため手動定義。
 const SDL_WINDOW_RESIZABLE: u64 = 0x0000_0000_0000_0020;
@@ -9,6 +11,8 @@ const SDL_WINDOW_HIGH_PIXEL_DENSITY: u64 = 0x0000_0000_0000_2000;
 
 pub struct Window {
     raw: NonNull<ffi::SDL_Window>,
+    // SDL_Window はスレッドアフィニティがあり、Mutex による排他だけでは Send にできない。
+    _not_send: PhantomData<MutexGuard<'static, ()>>,
 }
 
 impl Window {
@@ -18,7 +22,10 @@ impl Window {
         let flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
         let raw = unsafe { ffi::SDL_CreateWindow(c_title.as_ptr(), width, height, flags) };
         NonNull::new(raw)
-            .map(|raw| Self { raw })
+            .map(|raw| Self {
+                raw,
+                _not_send: PhantomData,
+            })
             .ok_or_else(Error::from_sdl)
     }
 
@@ -59,7 +66,3 @@ impl Drop for Window {
         unsafe { ffi::SDL_DestroyWindow(self.raw.as_ptr()) };
     }
 }
-
-// SAFETY: SDL_Window は Mutex<VideoPlayerInner> 内に保持し排他アクセスを保証しているため、
-// 別スレッドへの移動は安全。
-unsafe impl Send for Window {}
