@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - develop
+      - feature/**
+      - release/**
+    tags-ignore:
+      - "**"
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: CI
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+          - os: ubuntu-24.04-arm
+          - os: ubuntu-22.04
+          - os: ubuntu-22.04-arm
+          - os: macos-26
+          - os: macos-15
+          - os: windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+
+      - run: rustup update stable
+      - uses: shiguredo/github-actions/.github/actions/rust-cache@main
+        with:
+          os: ${{ matrix.os }}
+          toolchain: stable
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        # libclang-dev: bindgen による FFI バインディング生成に必要
+        # libasound2-dev: SDL3 の ALSA 音声出力に必要
+        # libpulse-dev: shiguredo_audio_device (dev-dependency) の PulseAudio 対応に必要
+        # libx11-dev / libxext-dev: SDL3 の X11 ウィンドウ表示に必要
+        # libxfixes-dev: SDL3 の X11 XFIXES (カーソル表示/非表示制御) に必要
+        # libxrandr-dev: SDL3 の X11 XRANDR (ディスプレイモード取得・マルチモニタ対応) に必要
+        # libxi-dev: SDL3 の X11 XINPUT に必要
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev libasound2-dev libpulse-dev libx11-dev libxext-dev libxfixes-dev libxrandr-dev libxi-dev
+
+      - run: cargo fmt --all --check
+      - run: cargo test --workspace --features source-build
+      - run: cargo clippy --workspace --features source-build -- -D warnings
+
+  docs-rs:
+    name: docs.rs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DOCS_RS: 1
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup update stable
+      - run: cargo doc --no-deps
+
+  slack_notify:
+    needs: [ci, docs-rs]
+    runs-on: ubuntu-slim
+    if: ${{ always() }}
+    permissions:
+      actions: read
+    steps:
+      - name: Slack Notification
+        uses: shiguredo/github-actions/.github/actions/slack-notify@main
+        with:
+          status: ${{ job.status }}
+          slack_webhook: ${{ secrets.SLACK_WEBHOOK }}
+          slack_channel: rust-oss
+          notify_mode: failure_and_fixed
