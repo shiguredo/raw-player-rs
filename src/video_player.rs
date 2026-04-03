@@ -868,10 +868,11 @@ impl VideoPlayer {
     }
 
     pub fn stats(&self) -> VideoPlayerStats {
-        let inner = self.inner.lock().unwrap();
-
+        // audio → inner の順でロックする（play/pause/stop と同じ順序）
         let audio_clock = self.audio.audio_clock_us();
         let audio_queue_ms = self.audio.audio_queue_ms();
+
+        let inner = self.inner.lock().unwrap();
 
         let video_buffer_ms = if inner.video_queue.len() >= 2 {
             let first_pts = inner.video_queue.front().unwrap().pts_us;
