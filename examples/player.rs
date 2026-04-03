@@ -10,6 +10,7 @@
 //! cargo run --example player -- --resolution 1080p --fps 60
 //! ```
 
+use std::process;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -372,7 +373,7 @@ fn main() {
         pixel_format: None,
     };
     let video_tx = tx.clone();
-    let mut video_capture = VideoCapture::new(video_config, move |frame: VideoFrame<'_>| {
+    let mut video_capture = match VideoCapture::new(video_config, move |frame: VideoFrame<'_>| {
         if let Some(pb) = frame.pixel_buffer.clone() {
             // macOS: pixel_buffer があればデータコピーなしで送信
             let _ = video_tx.send(CaptureMessage::VideoPixelBuffer(PixelBufferFrame {
@@ -388,8 +389,13 @@ fn main() {
             // pixel_buffer がない場合はデータをコピーして送信
             let _ = video_tx.send(CaptureMessage::Video(frame.to_owned()));
         }
-    })
-    .expect("VideoCapture の作成に失敗しました");
+    }) {
+        Ok(capture) => capture,
+        Err(e) => {
+            eprintln!("VideoCapture の作成に失敗しました: {e:?}");
+            process::exit(1);
+        }
+    };
 
     // AudioCapture を作成 (失敗した場合は映像のみで続行)
     let audio_config = AudioCaptureConfig {
@@ -410,8 +416,13 @@ fn main() {
 
     // VideoPlayer を作成
     let title = format!("Player ({}x{} @ {} fps)", args.width, args.height, args.fps);
-    let player = VideoPlayer::new(args.width, args.height, &title)
-        .expect("VideoPlayer の作成に失敗しました");
+    let player = match VideoPlayer::new(args.width, args.height, &title) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("VideoPlayer の作成に失敗しました: {e:?}");
+            process::exit(1);
+        }
+    };
 
     println!("=== Player ===");
     println!("解像度: {}x{}", args.width, args.height);
@@ -428,9 +439,10 @@ fn main() {
     player.set_key_callback(Some(|keycode: u32| -> bool { keycode != KEYCODE_ESCAPE }));
 
     // キャプチャ開始
-    video_capture
-        .start()
-        .expect("映像キャプチャの開始に失敗しました");
+    if let Err(e) = video_capture.start() {
+        eprintln!("映像キャプチャの開始に失敗しました: {e:?}");
+        process::exit(1);
+    }
     if let Some(ref mut ac) = audio_capture
         && let Err(e) = ac.start()
     {
@@ -439,7 +451,10 @@ fn main() {
     }
 
     // 再生開始
-    player.play().expect("再生の開始に失敗しました");
+    if let Err(e) = player.play() {
+        eprintln!("再生の開始に失敗しました: {e:?}");
+        process::exit(1);
+    }
 
     println!();
     println!("ESC キーで終了, S キーで統計オーバーレイ切替");

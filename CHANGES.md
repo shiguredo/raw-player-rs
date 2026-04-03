@@ -11,6 +11,12 @@
 
 ## develop
 
+- [CHANGE] `PixelBufferLock::stride()` の戻り値を `Result<i32>` に変更して `i32` 範囲外の stride を安全に検出する
+  - @voluntas
+- [FIX] `PixelBufferLock::stride()` が `usize` を `as i32` で無検証に切り詰めていた問題を修正する
+  - @voluntas
+- [FIX] サンプル `player.rs` の `expect()` を `eprintln!` + `process::exit(1)` に置き換えて recoverable error での panic を防止する
+  - @voluntas
 - [CHANGE] `quit()` を `unsafe fn` に変更して SDL リソース解放前の呼び出しを型レベルで警告する
   - @voluntas
 - [CHANGE] `set_key_callback` のクロージャ制約に `Sync` を追加する

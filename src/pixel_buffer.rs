@@ -146,13 +146,19 @@ impl<'a> PixelBufferLock<'a> {
     }
 
     /// 指定プレーンの stride (バイト/行) を返す。
+    /// SDL が要求する `i32` に安全に変換し、収まらない場合は `Err` を返す。
     #[cfg(target_os = "macos")]
-    pub fn stride(&self, index: usize) -> i32 {
-        unsafe { CVPixelBufferGetBytesPerRowOfPlane(self.buffer.ptr, index) as i32 }
+    pub fn stride(&self, index: usize) -> Result<i32> {
+        let stride = unsafe { CVPixelBufferGetBytesPerRowOfPlane(self.buffer.ptr, index) };
+        i32::try_from(stride).map_err(|_| {
+            Error::invalid_argument(format!(
+                "CVPixelBuffer plane stride {stride} exceeds i32::MAX"
+            ))
+        })
     }
 
     #[cfg(not(target_os = "macos"))]
-    pub fn stride(&self, _index: usize) -> i32 {
+    pub fn stride(&self, _index: usize) -> Result<i32> {
         unreachable!("PixelBufferLock is only available on macOS")
     }
 }

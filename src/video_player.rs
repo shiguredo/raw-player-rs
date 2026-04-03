@@ -1076,16 +1076,16 @@ impl VideoPlayer {
                         VideoFormat::NV12 => {
                             let y = lock.plane(0)?;
                             let uv = lock.plane(1)?;
-                            let y_pitch = lock.stride(0);
-                            let uv_pitch = lock.stride(1);
+                            let y_pitch = lock.stride(0)?;
+                            let uv_pitch = lock.stride(1)?;
                             texture.update_nv12(y, y_pitch, uv, uv_pitch)?;
                         }
                         VideoFormat::I420 => {
                             let y = lock.plane(0)?;
                             let u = lock.plane(1)?;
                             let v = lock.plane(2)?;
-                            let y_pitch = lock.stride(0);
-                            let uv_pitch = lock.stride(1);
+                            let y_pitch = lock.stride(0)?;
+                            let uv_pitch = lock.stride(1)?;
                             texture.update_yuv(y, y_pitch, u, uv_pitch, v, uv_pitch)?;
                         }
                         _ => {
