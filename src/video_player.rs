@@ -664,6 +664,11 @@ impl VideoPlayer {
         if width <= 0 || height <= 0 {
             return Err(Error::invalid_argument("width and height must be positive"));
         }
+        if width > MAX_DIMENSION || height > MAX_DIMENSION {
+            return Err(Error::invalid_argument(format!(
+                "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+            )));
+        }
         let pixel_buffer_ref = unsafe { PixelBufferRef::from_ptr(pixel_buffer_ptr)? };
         self.enqueue_frame(VideoFrame {
             pts_us,
@@ -1072,12 +1077,31 @@ impl VideoPlayer {
                 }
                 FrameData::PixelBuffer(pb) => {
                     let lock = pb.lock()?;
+                    let h = frame.height as usize;
                     match frame.format {
                         VideoFormat::NV12 => {
                             let y = lock.plane(0)?;
                             let uv = lock.plane(1)?;
                             let y_pitch = lock.stride(0)?;
                             let uv_pitch = lock.stride(1)?;
+                            // SDL はテクスチャの高さ分読み取るため、
+                            // 実プレーンがそれ以上の行数を持つことを検証する
+                            let chroma_h = h.div_ceil(2);
+                            if lock.plane_height(0) < h || lock.plane_height(1) < chroma_h {
+                                return Err(Error::invalid_argument(format!(
+                                    "NV12 PixelBuffer plane height insufficient: Y={}, UV={}, required Y>={h}, UV>={chroma_h}",
+                                    lock.plane_height(0),
+                                    lock.plane_height(1),
+                                )));
+                            }
+                            if (y_pitch as usize) < frame.width as usize
+                                || (uv_pitch as usize) < frame.width as usize
+                            {
+                                return Err(Error::invalid_argument(format!(
+                                    "NV12 PixelBuffer stride insufficient: Y={y_pitch}, UV={uv_pitch}, required >= {}",
+                                    frame.width,
+                                )));
+                            }
                             texture.update_nv12(y, y_pitch, uv, uv_pitch)?;
                         }
                         VideoFormat::I420 => {
@@ -1086,6 +1110,27 @@ impl VideoPlayer {
                             let v = lock.plane(2)?;
                             let y_pitch = lock.stride(0)?;
                             let uv_pitch = lock.stride(1)?;
+                            let chroma_h = h.div_ceil(2);
+                            let half_w = (frame.width as usize).div_ceil(2);
+                            if lock.plane_height(0) < h
+                                || lock.plane_height(1) < chroma_h
+                                || lock.plane_height(2) < chroma_h
+                            {
+                                return Err(Error::invalid_argument(format!(
+                                    "I420 PixelBuffer plane height insufficient: Y={}, U={}, V={}, required Y>={h}, UV>={chroma_h}",
+                                    lock.plane_height(0),
+                                    lock.plane_height(1),
+                                    lock.plane_height(2),
+                                )));
+                            }
+                            if (y_pitch as usize) < frame.width as usize
+                                || (uv_pitch as usize) < half_w
+                            {
+                                return Err(Error::invalid_argument(format!(
+                                    "I420 PixelBuffer stride insufficient: Y={y_pitch}, UV={uv_pitch}, required Y>={}, UV>={half_w}",
+                                    frame.width,
+                                )));
+                            }
                             texture.update_yuv(y, y_pitch, u, uv_pitch, v, uv_pitch)?;
                         }
                         _ => {

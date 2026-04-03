@@ -161,6 +161,17 @@ impl<'a> PixelBufferLock<'a> {
     pub fn stride(&self, _index: usize) -> Result<i32> {
         unreachable!("PixelBufferLock is only available on macOS")
     }
+
+    /// 指定プレーンの高さ (行数) を返す。
+    #[cfg(target_os = "macos")]
+    pub fn plane_height(&self, index: usize) -> usize {
+        unsafe { CVPixelBufferGetHeightOfPlane(self.buffer.ptr, index) }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn plane_height(&self, _index: usize) -> usize {
+        unreachable!("PixelBufferLock is only available on macOS")
+    }
 }
 
 #[cfg(target_os = "macos")]

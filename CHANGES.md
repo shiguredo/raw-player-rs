@@ -17,6 +17,8 @@
   - @voluntas
 - [FIX] サンプル `player.rs` の `expect()` を `eprintln!` + `process::exit(1)` に置き換えて recoverable error での panic を防止する
   - @voluntas
+- [FIX] `enqueue_video_pixel_buffer()` に `MAX_DIMENSION` チェックを追加し、レンダリング時に CVPixelBuffer の実プレーンサイズと宣言サイズの整合を検証する
+  - @voluntas
 - [CHANGE] `quit()` を `unsafe fn` に変更して SDL リソース解放前の呼び出しを型レベルで警告する
   - @voluntas
 - [CHANGE] `set_key_callback` のクロージャ制約に `Sync` を追加する
