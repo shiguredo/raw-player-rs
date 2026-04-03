@@ -9,6 +9,7 @@ use crate::error::{Error, Result};
 
 /// プレーンのバイト長 `stride * height`（`from_raw_parts` の第 2 引数用）。
 /// オーバーフロー時は `Err` とし、未定義動作を避ける。
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn plane_buffer_len(stride: usize, height: usize) -> Result<usize> {
     stride.checked_mul(height).ok_or_else(|| {
         Error::invalid_argument("CVPixelBuffer plane byte length overflow (stride * height)")
