@@ -529,6 +529,7 @@ fn main() {
 
     // SDL リソースをすべて解放してから SDL を終了する
     drop(player);
-    raw_player::quit();
+    // Safety: player は直前の drop(player) で解放済み
+    unsafe { raw_player::quit() };
     println!("完了");
 }

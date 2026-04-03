@@ -266,7 +266,8 @@ fn main() -> raw_player::Result<()> {
                 // SDL リソースをすべて解放してから quit を呼ぶ
                 drop(renderer);
                 drop(window);
-                quit();
+                // Safety: renderer, window は直前の drop で解放済み
+                unsafe { quit() };
                 return Ok(());
             }
         }

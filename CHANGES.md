@@ -11,6 +11,14 @@
 
 ## develop
 
+- [CHANGE] `quit()` を `unsafe fn` に変更して SDL リソース解放前の呼び出しを型レベルで警告する
+  - @voluntas
+- [CHANGE] `set_key_callback` のクロージャ制約に `Sync` を追加する
+  - @voluntas
+- [FIX] `poll_events()` の `key_callback` を Mutex ロック外で呼び出しデッドロックと poison 連鎖を防止する
+  - @voluntas
+- [FIX] validate 関数に `MAX_DIMENSION` 上限チェックを追加し pitch 計算の i32 オーバーフローを防止する
+  - @voluntas
 - [ADD] prebuilt バイナリのダウンロードに対応する
   - @voluntas
 - [ADD] `BUILD_REPOSITORY` / `BUILD_VERSION` 定数を公開する

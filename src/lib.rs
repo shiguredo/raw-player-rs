@@ -66,9 +66,11 @@ pub fn init() -> Result<()> {
 
 /// SDL3 を終了する。
 ///
+/// # Safety
+///
 /// すべての SDL リソース (VideoPlayer, Window, Renderer 等) を drop した後に呼ぶこと。
 /// リソースが残った状態で呼ぶと、drop 時に解放済みリソースへアクセスしクラッシュする。
-pub fn quit() {
+pub unsafe fn quit() {
     let mut initialized = SDL_INITIALIZED.lock().unwrap();
     if *initialized {
         unsafe { ffi::SDL_Quit() };
@@ -91,7 +93,8 @@ mod init_concurrency_tests {
 
     #[test]
     fn init_serializes_concurrent_first_calls() {
-        quit();
+        // Safety: テスト開始時点で SDL リソースは存在しない
+        unsafe { quit() };
 
         unsafe {
             // テストプロセス内・スレッド生成前のみ。他テストとのデータ競合を避けるため unsafe。
@@ -114,6 +117,7 @@ mod init_concurrency_tests {
             "first thread init failed (SDL unavailable?)"
         );
         assert!(h2.join().unwrap(), "second thread init failed");
-        quit();
+        // Safety: テスト完了後のクリーンアップ、SDL リソースは存在しない
+        unsafe { quit() };
     }
 }

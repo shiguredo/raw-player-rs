@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::audio_format::AudioFormat;
 use crate::audio_player::AudioPlayer;
@@ -13,10 +13,18 @@ use crate::video_frame::{FrameData, VideoFrame};
 use crate::window::Window;
 use crate::{Event, KEYCODE_S, poll_event};
 
+/// pitch 計算 (`width * 4`) で i32 オーバーフローしない最大 width。
+const MAX_DIMENSION: i32 = i32::MAX / 4;
+
 /// 入力検証: I420 フレームデータのサイズを検証する。
 pub fn validate_i420(y: &[u8], u: &[u8], v: &[u8], width: i32, height: i32) -> Result<()> {
     if width <= 0 || height <= 0 {
         return Err(Error::invalid_argument("width and height must be positive"));
+    }
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::invalid_argument(format!(
+            "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+        )));
     }
     if width % 2 != 0 || height % 2 != 0 {
         return Err(Error::invalid_argument(
@@ -52,6 +60,11 @@ pub fn validate_i420(y: &[u8], u: &[u8], v: &[u8], width: i32, height: i32) -> R
 pub fn validate_nv12(y: &[u8], uv: &[u8], width: i32, height: i32) -> Result<()> {
     if width <= 0 || height <= 0 {
         return Err(Error::invalid_argument("width and height must be positive"));
+    }
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::invalid_argument(format!(
+            "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+        )));
     }
     if width % 2 != 0 || height % 2 != 0 {
         return Err(Error::invalid_argument(
@@ -89,6 +102,11 @@ pub fn validate_i420_strided(
 ) -> Result<()> {
     if width <= 0 || height <= 0 {
         return Err(Error::invalid_argument("width and height must be positive"));
+    }
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::invalid_argument(format!(
+            "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+        )));
     }
     if width % 2 != 0 || height % 2 != 0 {
         return Err(Error::invalid_argument(
@@ -142,6 +160,11 @@ pub fn validate_nv12_strided(
     if width <= 0 || height <= 0 {
         return Err(Error::invalid_argument("width and height must be positive"));
     }
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::invalid_argument(format!(
+            "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+        )));
+    }
     if width % 2 != 0 || height % 2 != 0 {
         return Err(Error::invalid_argument(
             "NV12 requires even width and height",
@@ -180,6 +203,11 @@ pub fn validate_yuy2_strided(data: &[u8], width: i32, height: i32, pitch: i32) -
     if width <= 0 || height <= 0 {
         return Err(Error::invalid_argument("width and height must be positive"));
     }
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::invalid_argument(format!(
+            "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+        )));
+    }
     if width % 2 != 0 {
         return Err(Error::invalid_argument("YUY2 requires even width"));
     }
@@ -204,6 +232,11 @@ pub fn validate_yuy2(data: &[u8], width: i32, height: i32) -> Result<()> {
     if width <= 0 || height <= 0 {
         return Err(Error::invalid_argument("width and height must be positive"));
     }
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::invalid_argument(format!(
+            "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+        )));
+    }
     if width % 2 != 0 {
         return Err(Error::invalid_argument("YUY2 requires even width"));
     }
@@ -221,6 +254,11 @@ pub fn validate_yuy2(data: &[u8], width: i32, height: i32) -> Result<()> {
 fn validate_packed_4bpp(data: &[u8], width: i32, height: i32, format_name: &str) -> Result<()> {
     if width <= 0 || height <= 0 {
         return Err(Error::invalid_argument("width and height must be positive"));
+    }
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::invalid_argument(format!(
+            "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+        )));
     }
     let expected = width as usize * height as usize * 4;
     if data.len() != expected {
@@ -323,7 +361,7 @@ struct VideoPlayerInner {
 
     // UI
     show_stats_overlay: bool,
-    key_callback: Option<Box<dyn Fn(u32) -> bool + Send + 'static>>,
+    key_callback: Option<Arc<dyn Fn(u32) -> bool + Send + Sync + 'static>>,
 
     // 状態
     open: bool,
@@ -741,19 +779,26 @@ impl VideoPlayer {
             return Ok(false);
         }
 
-        // キーイベント処理
-        for keycode in key_events {
+        // キーイベント処理 (S キーのトグルはロック内で処理)
+        for &keycode in &key_events {
             if keycode == KEYCODE_S {
                 inner.show_stats_overlay = !inner.show_stats_overlay;
             }
+        }
 
-            if let Some(ref callback) = inner.key_callback
-                && !callback(keycode)
-            {
-                inner.open = false;
-                return Ok(false);
+        // コールバックはロック外で呼ぶ (デッドロック防止・poison 連鎖防止)
+        let callback = inner.key_callback.clone();
+        drop(inner);
+        if let Some(ref callback) = callback {
+            for keycode in key_events {
+                if !callback(keycode) {
+                    let mut inner = self.inner.lock().unwrap();
+                    inner.open = false;
+                    return Ok(false);
+                }
             }
         }
+        let mut inner = self.inner.lock().unwrap();
 
         // フレームレンダリング
         if inner.playing {
@@ -810,10 +855,11 @@ impl VideoPlayer {
 
     pub fn set_key_callback<F>(&self, callback: Option<F>)
     where
-        F: Fn(u32) -> bool + Send + 'static,
+        F: Fn(u32) -> bool + Send + Sync + 'static,
     {
         let mut inner = self.inner.lock().unwrap();
-        inner.key_callback = callback.map(|f| Box::new(f) as Box<dyn Fn(u32) -> bool + Send>);
+        inner.key_callback =
+            callback.map(|f| Arc::new(f) as Arc<dyn Fn(u32) -> bool + Send + Sync>);
     }
 
     pub fn stats(&self) -> VideoPlayerStats {
