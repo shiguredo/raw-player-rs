@@ -51,9 +51,6 @@
 - Issue を作成した LLM の Model と Version をファイルのタイトルの後に `Model: <model-name> <version>` として記載すること
   - Opus 4.6 や GPT-5.4 など
 - Issue はなぜこの対応が必要なのかの根拠を明確にすること
-- Issue には必ず AWS S3 API Reference の URL を追加すること
-  - URL に加えて、該当箇所の原文を引用（`>` を使った引用ブロック）として記載すること
-  - 複数の API が関係する場合はそれぞれの URL と引用を記載すること
 
 ### git ブランチの命名規則
 
