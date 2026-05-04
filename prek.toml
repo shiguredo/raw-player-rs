@@ -4,10 +4,15 @@ exclude = { glob = ["target/**"] }
 [[repos]]
 repo = "builtin"
 hooks = [
-  { id = "trailing-whitespace" },
-  { id = "end-of-file-fixer" },
+  { id = "check-added-large-files" },
+  { id = "check-merge-conflict" },
+  { id = "detect-private-key" },
   { id = "check-toml" },
   { id = "check-yaml" },
+  { id = "mixed-line-ending" },
+  { id = "trailing-whitespace" },
+  # 空ファイルに対して rustfmt と挙動が衝突するため pbt/src/lib.rs は除外する
+  { id = "end-of-file-fixer", exclude = "^pbt/src/lib\\.rs$" },
 ]
 
 [[repos]]

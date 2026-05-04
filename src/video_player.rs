@@ -911,27 +911,23 @@ impl VideoPlayer {
             video_buffer_ms,
             elapsed_time_ms: elapsed_ms,
             video_bitrate_kbps,
-            avg_texture_update_us: if inner.render_count > 0 {
-                inner.render_texture_update_us / inner.render_count
-            } else {
-                0
-            },
+            avg_texture_update_us: inner
+                .render_texture_update_us
+                .checked_div(inner.render_count)
+                .unwrap_or(0),
             max_texture_update_us: inner.render_tex_max_us,
-            avg_clear_copy_us: if inner.render_count > 0 {
-                inner.render_clear_copy_us / inner.render_count
-            } else {
-                0
-            },
-            avg_present_us: if inner.render_count > 0 {
-                inner.render_present_us / inner.render_count
-            } else {
-                0
-            },
-            avg_vsync_interval_us: if inner.render_vsync_count > 0 {
-                inner.render_vsync_interval_us / inner.render_vsync_count
-            } else {
-                0
-            },
+            avg_clear_copy_us: inner
+                .render_clear_copy_us
+                .checked_div(inner.render_count)
+                .unwrap_or(0),
+            avg_present_us: inner
+                .render_present_us
+                .checked_div(inner.render_count)
+                .unwrap_or(0),
+            avg_vsync_interval_us: inner
+                .render_vsync_interval_us
+                .checked_div(inner.render_vsync_count)
+                .unwrap_or(0),
         }
     }
 
