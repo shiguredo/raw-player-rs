@@ -218,7 +218,7 @@ fn list_devices() {
             if devices.is_empty() {
                 println!("  映像デバイスが見つかりません");
             } else {
-                for device in devices.devices() {
+                for device in &devices {
                     let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
                     let id = device.unique_id().unwrap_or_else(|_| "Unknown".to_string());
                     println!("  {name}");
@@ -247,7 +247,7 @@ fn list_devices() {
             if devices.is_empty() {
                 println!("  音声入力デバイスが見つかりません");
             } else {
-                for device in devices.devices() {
+                for device in &devices {
                     let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
                     let id = device.unique_id().unwrap_or_else(|_| "Unknown".to_string());
                     println!(
@@ -269,7 +269,8 @@ fn map_video_format(pf: PixelFormat) -> Option<raw_player::VideoFormat> {
         PixelFormat::Nv12 => Some(raw_player::VideoFormat::NV12),
         PixelFormat::I420 => Some(raw_player::VideoFormat::I420),
         PixelFormat::Yuy2 => Some(raw_player::VideoFormat::YUY2),
-        PixelFormat::Unknown(_) => None,
+        // MJPEG は圧縮形式のため raw_player ではそのまま再生できない
+        PixelFormat::Mjpeg | PixelFormat::Unknown(_) => None,
     }
 }
 
@@ -339,7 +340,8 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
                 pts_us,
             )?;
         }
-        PixelFormat::Unknown(_) => {
+        // MJPEG は圧縮形式のためデコードなしでは再生できない
+        PixelFormat::Mjpeg | PixelFormat::Unknown(_) => {
             use std::sync::Once;
             static WARN: Once = Once::new();
             WARN.call_once(|| {

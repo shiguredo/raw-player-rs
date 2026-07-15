@@ -15,7 +15,7 @@ include = ["/LICENSE", "/README.md", "/build.rs", "/src/**"]
 # (この内容は build.rs の中からのみ参照される)
 [package.metadata.external-dependencies.sdl3]
 url = "https://github.com/libsdl-org/SDL"
-tag = "release-3.4.8"
+tag = "release-3.4.12"
 
 [workspace]
 members = ["pbt"]
@@ -23,13 +23,13 @@ members = ["pbt"]
 [dependencies]
 
 [dev-dependencies]
-shiguredo_audio_device = { version = "2026.1", default-features = false }
-shiguredo_video_device = { version = "2026.1", default-features = false }
+shiguredo_audio_device = "=2026.2.0-canary.1"
+shiguredo_video_device = "=2026.2.0-canary.2"
 
 [build-dependencies]
 bindgen = "0.72"
-shiguredo_cmake = "4.3"
-shiguredo_toml = "2026.1"
+shiguredo_cmake = "4.4"
+shiguredo_toml = "2026.2"
 
 [features]
 source-build = []
