@@ -1176,9 +1176,9 @@ impl VideoPlayer {
                             let u = lock.plane(1)?;
                             let v = lock.plane(2)?;
                             let y_pitch = lock.stride(0)?;
-                            let uv_pitch = lock.stride(1)?;
+                            let u_pitch = lock.stride(1)?;
+                            let v_pitch = lock.stride(2)?;
                             let chroma_h = h.div_ceil(2);
-                            let half_w = (frame.width as usize).div_ceil(2);
                             if lock.plane_height(0) < h
                                 || lock.plane_height(1) < chroma_h
                                 || lock.plane_height(2) < chroma_h
@@ -1190,15 +1190,13 @@ impl VideoPlayer {
                                     lock.plane_height(2),
                                 )));
                             }
-                            if (y_pitch as usize) < frame.width as usize
-                                || (uv_pitch as usize) < half_w
-                            {
-                                return Err(Error::invalid_argument(format!(
-                                    "I420 PixelBuffer stride insufficient: Y={y_pitch}, UV={uv_pitch}, required Y>={}, UV>={half_w}",
-                                    frame.width,
-                                )));
-                            }
-                            texture.update_yuv(y, y_pitch, u, uv_pitch, v, uv_pitch)?;
+                            validate_i420_pixel_buffer_strides(
+                                frame.width,
+                                y_pitch,
+                                u_pitch,
+                                v_pitch,
+                            )?;
+                            texture.update_yuv(y, y_pitch, u, u_pitch, v, v_pitch)?;
                         }
                         _ => {
                             return Err(Error::invalid_argument(format!(
@@ -1370,5 +1368,60 @@ impl VideoPlayer {
         inner.renderer.set_scale(orig_sx, orig_sy)?;
 
         Ok(())
+    }
+}
+
+/// I420 PixelBuffer の Y/U/V stride 下限を検証する。
+///
+/// U と V が異なっても拒否しない。それぞれ `half_w` 以上であればよい。
+pub(crate) fn validate_i420_pixel_buffer_strides(
+    width: i32,
+    y_pitch: i32,
+    u_pitch: i32,
+    v_pitch: i32,
+) -> Result<()> {
+    let half_w = (width as usize).div_ceil(2);
+    if (y_pitch as usize) < width as usize
+        || (u_pitch as usize) < half_w
+        || (v_pitch as usize) < half_w
+    {
+        return Err(Error::invalid_argument(format!(
+            "I420 PixelBuffer stride insufficient: Y={y_pitch}, U={u_pitch}, V={v_pitch}, required Y>={width}, U/V>={half_w}"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod i420_pixel_buffer_stride_tests {
+    use super::validate_i420_pixel_buffer_strides;
+
+    #[test]
+    fn rejects_u_pitch_below_half_width() {
+        // width=16 → half_w=8。U=7 は不足、V=8 は足りる
+        let err = validate_i420_pixel_buffer_strides(16, 16, 7, 8).expect_err("U pitch 不足は Err");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("U=7") && msg.contains("V=8"),
+            "メッセージに U/V が含まれるべき: {msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_v_pitch_below_half_width() {
+        // V だけ不足
+        let err = validate_i420_pixel_buffer_strides(16, 16, 8, 7).expect_err("V pitch 不足は Err");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("U=8") && msg.contains("V=7"),
+            "メッセージに U/V が含まれるべき: {msg}"
+        );
+    }
+
+    #[test]
+    fn accepts_different_u_and_v_when_both_sufficient() {
+        // U≠V でもどちらも half_w 以上なら Ok
+        validate_i420_pixel_buffer_strides(16, 16, 8, 10).expect("U/V 不一致でも下限を満たせば Ok");
+        validate_i420_pixel_buffer_strides(16, 16, 12, 8).expect("U/V 不一致でも下限を満たせば Ok");
     }
 }

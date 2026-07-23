@@ -2,7 +2,7 @@
 
 - Priority: Medium
 - Created: 2026-07-15
-- Completed:
+- Completed: 2026-07-23
 - Model: Grok 4.5
 - Branch: feature/fix-i420-pixel-buffer-v-stride-ignored
 - Polished: 2026-07-22
@@ -84,6 +84,8 @@ I420 PixelBuffer パス（`src/video_player.rs` 1104–1131 行付近）:
 
 ## 解決方法
 
-1. I420 PixelBuffer 分岐で `stride(2)` を取得し、U/V を別々に下限検証して `update_yuv` に渡す
-2. エラーメッセージを Y/U/V 分離にする
-3. 下限検証の切り出し単体テストを追加する
+I420 PixelBuffer 描画で `stride(2)` を取得し、U/V を別々に下限検証して `update_yuv` に渡すようにした。
+
+- `validate_i420_pixel_buffer_strides` を切り出し、U≠V でも下限を満たせば Ok とする
+- エラーメッセージを Y/U/V 分離にした
+- `src/video_player.rs` 内の単体テストで U/V 不足と不一致 Ok を検証した

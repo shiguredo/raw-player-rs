@@ -27,6 +27,8 @@
   - @voluntas
 - [FIX] enqueue_video_pixel_buffer が対応フォーマットと偶数寸法を enqueue 時に検証しない問題を修正する
   - @voluntas
+- [FIX] I420 PixelBuffer 描画で V プレーン stride を見ない問題を修正する
+  - @voluntas
 
 ### misc
 
