@@ -5,7 +5,7 @@
 - Completed:
 - Model: Grok 4.5
 - Branch: feature/fix-docs-rs-dummy-bindings-incomplete
-- Polished: 2026-07-17
+- Polished: 2026-07-23
 
 ## 目的
 
@@ -17,14 +17,16 @@
 
 - 公開 docs.rs / CI `docs-rs` ジョブ（`DOCS_RS=1 cargo doc --no-deps`）は現状常に成功する
 - 一方 `DOCS_RS=1 cargo check` は約 62 件失敗する（実測例: E0425 約 58、E0609 約 3、E0277 1）
-- CI は `cargo check` を走らせないため、ダミーと `src/` の乖離が緑のまま蓄積する
+- CI の **`docs-rs` ジョブ**は `cargo check` を走らせない（主 `ci` ジョブの `cargo test` / `clippy` は通常ビルド向けで、`DOCS_RS` ダミー経路は通らない）ため、ダミーと `src/` の乖離が緑のまま蓄積する
 - ユーザー向けランタイムの即時障害ではないが、壊れた窓として放置すると docs.rs 経路の潜伏バグになるため Medium
 
 ## 現状
 
 `build.rs` の `DOCS_RS` 分岐（おおむね L35–69）は、opaque 型・一部イベント定数・キー定数など最小限だけを書き出して return する。コメントも「ドキュメント生成時に最低限」と明記している。リンク指示は出さない。
 
-一方 `src/` は `ffi::` 経由で SDL 関数・定数・`SDL_Event` フィールドを広く参照する。`src/ffi.rs` は `OUT_DIR` の `bindings.rs` を `include!` するだけなので、ダミー不足はそのまま名前解決・型エラーになる。
+一方 `src/` は `ffi::` 経由で SDL 関数・定数・`SDL_Event` フィールドを広く参照する。`src/ffi.rs` は `OUT_DIR` の **`metadata.rs` と `bindings.rs` の両方**を `include!` する。`BUILD_METADATA_REPOSITORY` / `BUILD_METADATA_VERSION` は `build.rs` が DOCS_RS early-return **より前**に `metadata.rs` へ書くため、ダミー `bindings.rs` には **含めない**（入れると二重定義になる）。ダミー不足は bindings 側の名前解決・型エラーとして現れる。
+
+rustdoc は公開シグネチャ中心で関数本体を型検査しないため、欠落した `ffi::SDL_Init` 等は `cargo check` だけが検出する（再現の doc 成功 / check 失敗と対応）。
 
 ### 再現
 
@@ -35,13 +37,11 @@ DOCS_RS=1 cargo doc --no-deps  # 成功（現状・CI と同条件）
 
 キャッシュ混在を避ける場合は先に `cargo clean -p raw_player` する。
 
-### なぜ doc は通って check は落ちるか
-
-rustdoc は公開アイテムのシグネチャは検査するが関数本体は型検査しない。欠落した `ffi::SDL_Init` 等は `cargo check` だけが検出する。
-
 ### 不足の内訳（現状ダミーに無いもの）
 
-必須集合は `src/` の `ffi::` 参照 **全体**（既存ダミーにある opaque・イベント定数・`SDLK_*`・`SDL_BLENDMODE_BLEND` 等も含む）。以下は **不足分のみ** のチェックリストであり、一括書き換え時に既存分を落とさないこと。
+必須集合は `src/` が **bindings 経由で**参照する関数・定数・型の全体（`BUILD_METADATA_*` は `metadata.rs` 側のため除外）。以下は **不足分のみ** のチェックリスト。一括書き換え時は現行 `concat!` をベースに差分追加し、既存分を落とさないこと。
+
+**現状ダミーに既にあるもの（維持必須）:** opaque（`SDL_Window` / `Renderer` / `Texture` / `AudioStream`）、`SDL_AudioSpec` / `SDL_FRect` / `SDL_Event`（要改修）、`SDL_AudioDeviceID` / `SDL_AudioFormat` / `SDL_PixelFormat`、イベント型定数、`SDLK_ESCAPE` / `SDLK_S`、`SDL_BLENDMODE_BLEND`、`SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE`
 
 関数（ダミーに無し、呼び出しあり）:
 
@@ -67,6 +67,7 @@ rustdoc は公開アイテムのシグネチャは検査するが関数本体は
 
 対象外:
 
+- `BUILD_METADATA_REPOSITORY` / `BUILD_METADATA_VERSION`（`metadata.rs`。ダミー bindings に書かない）
 - `src` 側の手動定数（`SDL_WINDOW_*`, `SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK` など）
 - allowlist のみで `src` 未使用の `SDL_LockTexture` / `SDL_UnlockTexture`（allowlist 一括で入れるのは可、必須ではない）
 
@@ -84,10 +85,10 @@ AGENTS / shiguredo-rust の「モックやスタブは絶対に利用しない�
 
 ### 同期の正本
 
-- **必須集合**: `src/` が参照する関数・定数・型の全体（既存ダミー分＋下記不足分）
+- **必須集合**: `src/` が bindings 経由で参照する関数・定数・型（既存ダミー分＋**上記**不足分）。`BUILD_METADATA_*` は含めない
 - **任意**: bindgen allowlist 関数をまとめてダミー化してもよい（その場合 Lock/Unlock を含めてよい）
-- **定数**: `src` の `ffi::` 参照のみ。ワイルドカード allowlist の全定数はコピーしない
-- ドリフト防止の必須手段は `DOCS_RS=1 cargo check`（CI でも実行）
+- **定数**: `src` の `ffi::` 参照のうち bindings 由来のみ。ワイルドカード allowlist の全定数はコピーしない
+- ドリフト防止の必須手段は `DOCS_RS=1 cargo check`（CI `docs-rs` ジョブでも実行）
 
 ### ダミー関数の書き方
 
@@ -126,12 +127,9 @@ AGENTS / shiguredo-rust の「モックやスタブは絶対に利用しない�
 - `window`: ネスト型。公開フィールド **`data1: i32`**, **`data2: i32`**
 - `Default` は付けない（巨大 `_pad` + derive は使わない）
 
-### opaque 型と 0023
+### opaque 型と closed 0023
 
-`Window` / `Renderer` / `Texture` は `NonNull<ffi::SDL_*>` を保持する。closed 0023 の結論どおり、`!Send` / `!Sync` の実効因は `NonNull` であり、FFI opaque の形ではない。本 issue では:
-
-- `src/` のラッパは触らない（非目標）
-- ダミーは既存どおり名前解決できる opaque（`pub struct SDL_Window;` 等の ZST）を維持し、所有データ化しない
+`Window` / `Renderer` / `Texture` は `NonNull<ffi::SDL_*>` を保持する。closed 0023 どおり `!Send` / `!Sync` の実効因は `NonNull`。本 issue では `src/` ラッパを触らず、ダミーは既存どおり名前解決できる opaque（`pub struct SDL_Window;` 等）を維持する。
 
 ### 非目標
 
@@ -145,7 +143,15 @@ AGENTS / shiguredo-rust の「モックやスタブは絶対に利用しない�
 - `DOCS_RS=1 cargo check` が成功する（本 issue の主ゲート。現状未達）
 - `DOCS_RS=1 cargo doc --no-deps` が成功する（現状成功の回帰確認）
 - `DOCS_RS` 未設定の通常 `cargo check`（および既存テスト経路）が壊れていない
-- `.github/workflows/ci.yml` の `docs-rs` ジョブ（既に `env: DOCS_RS: 1`）に `cargo check` ステップを追加する。挿入位置は `rustup update stable` の直後、`cargo doc --no-deps` の直前（fail-fast）。本バグの回帰固定であり別スコープではない
+- `.github/workflows/ci.yml` の `docs-rs` ジョブ（既に `env: DOCS_RS: 1`）に `cargo check` ステップを追加する。挿入位置は `rustup update stable` の直後、`cargo doc --no-deps` の直前（fail-fast）。例:
+
+```yaml
+      - run: rustup update stable
+      - run: cargo check
+      - run: cargo doc --no-deps
+```
+
+  本バグの回帰固定であり別スコープではない
 - `build.rs` の DOCS_RS コメントを「最低限」から「`src` の参照と揃え `cargo check` が通る」方針に更新する（allowlist 一括は任意のまま。修正後に旧コメントが虚偽になるための事実更新）
 - `src/` のラッパを変えず、0023 が確認した `NonNull` 由来の `!Send` / `!Sync` を壊さない
 
@@ -154,7 +160,7 @@ AGENTS / shiguredo-rust の「モックやスタブは絶対に利用しない�
 1. `rg 'ffi::' src` と上記不足リスト、必要なら実 bindings の署名を突き合わせ、既存ダミーを落とさず不足分（関数・定数・`SDL_Event` 最小形）を追加する（`#[link]` なし）
 2. 戻り値・主要引数を呼び出しに合わせる。残りは `DOCS_RS=1 cargo check` の型エラーを潰す
 3. `SDL_Event` を設計方針の最小形にする（`Default` / 巨大 `_pad` をやめる）
-4. 完了条件どおり、ローカル確認・CI `docs-rs` への `cargo check` 追加・`build.rs` コメント更新を行う
+4. 完了条件のコマンドでローカル確認し、CI `docs-rs` への `cargo check` 追加と `build.rs` コメント更新を行う（metadata 書き込みは early-return より前のまま残す）
 
 ### テスト方針
 
