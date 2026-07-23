@@ -2,7 +2,7 @@
 
 - Priority: High
 - Created: 2026-07-15
-- Completed:
+- Completed: 2026-07-23
 - Model: Grok 4.5
 - Branch: feature/fix-texture-update-missing-length-check
 - Polished: 2026-07-22
@@ -94,5 +94,8 @@ FFI 前に次をすべて満たさない場合は `Error::invalid_argument` を�
 
 ## 解決方法
 
-1. `update_*` に format・奇偶・非正／`MAX_DIMENSION`・pitch 下限・最小長（すべて overflow 安全）の検証を追加する
-2. `tests/test_texture.rs` に上記ケースを追加する
+`Texture::update_yuv` / `update_nv12` / `update_packed` に FFI 前検証を追加した。
+
+- format 不一致・非正／過大寸法・奇数寸法（該当 format）・負／不足 pitch・最小長未満を `Error::invalid_argument` で拒否する
+- 最小長計算は `checked_mul` / `usize` 換算とし、i32 直乗算は使わない
+- `tests/test_texture.rs` に長さ・pitch・format 不一致・奇数寸法の単体テストを追加した
