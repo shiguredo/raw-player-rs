@@ -29,6 +29,8 @@
   - @voluntas
 - [FIX] I420 PixelBuffer 描画で V プレーン stride を見ない問題を修正する
   - @voluntas
+- [FIX] examples/player の I420 UV 分割が短バッファでパニックする問題を修正する
+  - @voluntas
 
 ### misc
 
