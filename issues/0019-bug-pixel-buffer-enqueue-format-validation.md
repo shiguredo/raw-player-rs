@@ -2,7 +2,7 @@
 
 - Priority: High
 - Created: 2026-07-15
-- Completed:
+- Completed: 2026-07-23
 - Model: Grok 4.5
 - Branch: feature/fix-pixel-buffer-enqueue-format-validation
 - Polished: 2026-07-22
@@ -78,7 +78,8 @@ enqueue 時点で次を検証し、失敗時は `Error::invalid_argument`、キ�
 
 ## 解決方法
 
-1. format＋偶数の検証を追加する（`validate_*` と同規則。切り出し関数推奨）
-2. `from_ptr` より前に置く
-3. `enqueue_video_pixel_buffer` の rustdoc に pitch 未使用を明記する
-4. 単体テストを追加する
+`validate_pixel_buffer_enqueue` を追加し、`enqueue_video_pixel_buffer` で `from_ptr` より前に呼ぶようにした。
+
+- I420/NV12 以外と奇数寸法を `Error::invalid_argument` で拒否する
+- rustdoc に `y_pitch` / `uv_pitch` が描画で未使用である旨を明記した
+- `tests/test_video_player.rs` に format / 奇数寸法 / 偶数 Ok の単体テストを追加した
