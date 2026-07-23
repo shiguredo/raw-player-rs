@@ -2,7 +2,7 @@
 
 - Priority: Medium
 - Created: 2026-07-22
-- Completed:
+- Completed: 2026-07-23
 - Model: Grok 4.5
 - Branch: feature/fix-texture-new-dimension-validation
 - Polished: 2026-07-23
@@ -104,7 +104,9 @@
 
 ## 解決方法
 
-1. `src/texture.rs` に局所 `MAX_DIMENSION` を定義し（0017 が先なら流用）、`Texture::new` の `SDL_CreateTexture` 直前に非正 → 過大の順で検証を入れる。公開メソッドの rustdoc に寸法契約（非正・過大は `InvalidArgument`）を一文足す
-2. `tests/test_texture.rs` を新設（または 0017 が先なら **同一 `#[test]` に追記**）し、上記必須ケースを実装する。明示 `drop` 後に `unsafe { quit() }`
-3. `CHANGES.md` develop に `[FIX]` と著者行を追記する
-4. 偶奇・`update_*`・定数共通化には手を出さない
+`Texture::new` で `SDL_CreateTexture` の前に非正 → 過大の順で寸法を検証し、失敗時は FFI 前に `InvalidArgument` を返すようにした。
+
+- `new_yuv` は委譲のため自動追随
+- `tests/test_texture.rs` を 1 つの `#[test]` に畳み、寸法拒否と既存 `update_*` 契約を同一関数で検証する
+- 明示 `drop` の後に `quit()` する
+- 偶奇制約は作成時に入れていない
