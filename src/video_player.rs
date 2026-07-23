@@ -328,6 +328,8 @@ struct VideoPlayerInner {
     video_start_time_ns: u64,
     first_video_pts_us: i64,
     video_only_started: bool,
+    // 映像のみ経路で pause 開始時刻を保持し、再開時に壁時計へ加算する（None = 補正待ちなし）
+    pause_started_ns: Option<u64>,
 
     // 同期設定
     sync_threshold_us: i64,
@@ -402,6 +404,7 @@ impl VideoPlayer {
                 video_start_time_ns: 0,
                 first_video_pts_us: 0,
                 video_only_started: false,
+                pause_started_ns: None,
 
                 sync_threshold_us: 40_000,
                 max_video_queue_size: 5,
@@ -698,6 +701,15 @@ impl VideoPlayer {
     pub fn play(&self) -> Result<()> {
         self.audio.play()?;
         let mut inner = self.inner.lock().unwrap();
+        // 映像のみ経路で pause 中に進んだ壁時計分を video_start_time_ns へ加算する。
+        // 補正条件は pause_started_ns の有無のみ（音声開始の再判定はしない）。
+        if let Some(pause_started) = inner.pause_started_ns.take() {
+            let now = unsafe { ffi::SDL_GetTicksNS() };
+            // 逆転時は加算をスキップし、フラグだけクリアする（巨大な unsigned 引き算を避ける）
+            if now >= pause_started {
+                inner.video_start_time_ns += now - pause_started;
+            }
+        }
         if !inner.playing {
             inner.playing = true;
             inner.has_played = true;
@@ -712,8 +724,19 @@ impl VideoPlayer {
     /// 再生を一時停止する。
     pub fn pause(&self) -> Result<()> {
         self.audio.pause()?;
+        // 映像のみ経路の判定に使う。audio.pause 成功後に読む（失敗時は映像側を触らない）
+        let audio_started = self.audio.is_started();
         let mut inner = self.inner.lock().unwrap();
+        let was_playing = inner.playing;
         inner.playing = false;
+        // 映像のみかつ初回描画済みの pause 遷移時だけ開始時刻を記録する（上書きしない）
+        if was_playing
+            && inner.video_only_started
+            && !audio_started
+            && inner.pause_started_ns.is_none()
+        {
+            inner.pause_started_ns = Some(unsafe { ffi::SDL_GetTicksNS() });
+        }
         Ok(())
     }
 
@@ -728,6 +751,7 @@ impl VideoPlayer {
         inner.video_only_started = false;
         inner.video_start_time_ns = 0;
         inner.first_video_pts_us = 0;
+        inner.pause_started_ns = None;
         inner.dropped_frames = 0;
         inner.repeated_frames = 0;
         inner.total_frames_enqueued = 0;
@@ -946,6 +970,7 @@ impl VideoPlayer {
         inner.video_only_started = false;
         inner.video_start_time_ns = 0;
         inner.first_video_pts_us = 0;
+        inner.pause_started_ns = None;
     }
 
     pub fn set_stats_overlay(&self, enabled: bool) {
