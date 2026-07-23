@@ -3,16 +3,11 @@
 //! play / pause / stop の成功経路が破綻しないことを確認する。
 //! SDL 失敗時の原子性はモック禁止のためここでは証明しない。
 
-use raw_player::{AudioFormat, AudioPlayer, init};
+mod common;
 
-fn setup_sdl() {
-    // Safety: テストプロセス内・SDL 初期化前のみ。
-    unsafe {
-        std::env::set_var("SDL_AUDIODRIVER", "dummy");
-        std::env::set_var("SDL_VIDEODRIVER", "dummy");
-    }
-    init().expect("SDL init に失敗した");
-}
+use raw_player::{AudioFormat, AudioPlayer};
+
+use common::acquire_sdl;
 
 fn silence_s16(sample_rate: i32, channels: i32, duration_ms: usize) -> Vec<u8> {
     let frames = sample_rate as usize * duration_ms / 1000;
@@ -22,7 +17,7 @@ fn silence_s16(sample_rate: i32, channels: i32, duration_ms: usize) -> Vec<u8> {
 /// play → pause → stop → 再 enqueue → 再 play の成功経路を確認する。
 #[test]
 fn play_pause_stop_success_path_allows_replay() {
-    setup_sdl();
+    let _guard = acquire_sdl();
     let player = AudioPlayer::new();
     let sample_rate = 48_000;
     let channels = 2;

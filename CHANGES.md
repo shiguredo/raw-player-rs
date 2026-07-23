@@ -32,6 +32,8 @@
   - @voluntas
 - [ADD] skills/raw-player/SKILL.md を追加する
   - @voluntas
+- [FIX] SDL を使う統合テストをプロセス内 Mutex で直列化し並列実行時のクラッシュを防ぐ
+  - @voluntas
 
 ## 2026.1.0
 
