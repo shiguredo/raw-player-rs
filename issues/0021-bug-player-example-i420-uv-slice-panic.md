@@ -2,7 +2,7 @@
 
 - Priority: Medium
 - Created: 2026-07-15
-- Completed:
+- Completed: 2026-07-23
 - Model: Grok 4.5
 - Branch: feature/fix-player-example-i420-uv-slice-panic
 - Polished: 2026-07-23
@@ -114,8 +114,4 @@ u_plane_size = stride_uv as usize * uv_h
 
 ## 解決方法
 
-1. I420 分岐で上記ガード（負値・`checked_mul`・`len < u_plane_size`）をスライス前に入れる
-2. 失敗時は別 `Once` 警告 + `return Ok(())`
-3. 成功時のみ既存スライス + `enqueue_video_i420_strided`
-4. `CHANGES.md` に `[FIX]` を追記する
-5. `src/` は変更しない
+`examples/player.rs` の I420 非 PixelBuffer 経路で、スライス前に負の stride/height・`checked_mul` 失敗・`uv_data.len() < u_plane_size` を検出し、別 `Once` の日本語警告を 1 回出して `Ok(())` でスキップするようにした。`src/` は変更していない。
