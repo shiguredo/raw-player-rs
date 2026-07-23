@@ -2,7 +2,7 @@
 
 - Priority: Medium
 - Created: 2026-07-15
-- Completed:
+- Completed: 2026-07-23
 - Model: Grok 4.5
 - Branch: feature/fix-docs-rs-dummy-bindings-incomplete
 - Polished: 2026-07-23
@@ -157,12 +157,8 @@ AGENTS / shiguredo-rust の「モックやスタブは絶対に利用しない�
 
 ## 解決方法
 
-1. `rg 'ffi::' src` と上記不足リスト、必要なら実 bindings の署名を突き合わせ、既存ダミーを落とさず不足分（関数・定数・`SDL_Event` 最小形）を追加する（`#[link]` なし）
-2. 戻り値・主要引数を呼び出しに合わせる。残りは `DOCS_RS=1 cargo check` の型エラーを潰す
-3. `SDL_Event` を設計方針の最小形にする（`Default` / 巨大 `_pad` をやめる）
-4. 完了条件のコマンドでローカル確認し、CI `docs-rs` への `cargo check` 追加と `build.rs` コメント更新を行う（metadata 書き込みは early-return より前のまま残す）
+`build.rs` の DOCS_RS ダミー bindings を `src` が参照する関数・定数・`SDL_Event` 最小形に揃えた。
 
-### テスト方針
-
-- PBT / 単体テストは対象外（docs.rs 用ダミーの compile-time 網羅であり、実行時プロパティでも境界値ユニットでもない）
-- 検証は完了条件のコマンドと CI で行う
+- `#[link]` なしの Rust 関数としてダミー戻り値を返す形にした
+- `.github/workflows/ci.yml` の docs-rs ジョブに `cargo check` を追加した
+- `DOCS_RS=1 cargo check` / `cargo doc --no-deps` が成功することを確認した

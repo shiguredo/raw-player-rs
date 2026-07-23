@@ -65,6 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: rustup update stable
+      - run: cargo check
       - run: cargo doc --no-deps
 
   slack_notify:

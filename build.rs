@@ -33,37 +33,250 @@ fn main() {
     .expect("failed to write metadata file");
 
     if std::env::var("DOCS_RS").is_ok() {
-        // Docs.rs 向けのビルドでは curl ができないので build.rs の処理はスキップして、
-        // 代わりに、ドキュメント生成時に最低限必要な定義だけをダミーで出力している。
+        // Docs.rs 向け: curl / ネイティブビルド不可のため、src が参照する
+        // bindings 記号・署名を揃えたダミーを出力し `cargo check` も通す。
         //
         // See also: https://docs.rs/about/builds
         std::fs::write(
             output_bindings_path,
-            concat!(
-                "pub struct SDL_Window;\n",
-                "pub struct SDL_Renderer;\n",
-                "pub struct SDL_Texture;\n",
-                "pub struct SDL_AudioStream;\n",
-                "#[repr(C)]\n#[derive(Default)]\npub struct SDL_AudioSpec { pub format: i32, pub channels: i32, pub freq: i32 }\n",
-                "#[repr(C)]\n#[derive(Default)]\npub struct SDL_FRect { pub x: f32, pub y: f32, pub w: f32, pub h: f32 }\n",
-                "#[repr(C)]\n#[derive(Default)]\npub struct SDL_Event { pub type_: u32, pub _pad: [u8; 124] }\n",
-                "pub type SDL_AudioDeviceID = u32;\n",
-                "pub type SDL_AudioFormat = i32;\n",
-                "pub type SDL_PixelFormat = u32;\n",
-                // イベント型定数
-                "pub const SDL_EventType_SDL_EVENT_QUIT: u32 = 0x100;\n",
-                "pub const SDL_EventType_SDL_EVENT_KEY_DOWN: u32 = 0x300;\n",
-                "pub const SDL_EventType_SDL_EVENT_KEY_UP: u32 = 0x301;\n",
-                "pub const SDL_EventType_SDL_EVENT_WINDOW_RESIZED: u32 = 0x206;\n",
-                "pub const SDL_EventType_SDL_EVENT_WINDOW_CLOSE_REQUESTED: u32 = 0x210;\n",
-                // キーコード定数
-                "pub const SDLK_ESCAPE: u32 = 27;\n",
-                "pub const SDLK_S: u32 = 115;\n",
-                // ブレンドモード定数
-                "pub const SDL_BLENDMODE_BLEND: u32 = 1;\n",
-                // デバッグテキスト定数
-                "pub const SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE: i32 = 8;\n",
-            ),
+            r#####"// Docs.rs 用ダミー bindings。src が参照する記号・署名を揃え cargo check を通す。
+pub struct SDL_Window;
+pub struct SDL_Renderer;
+pub struct SDL_Texture;
+pub struct SDL_AudioStream;
+pub struct SDL_Rect;
+
+pub type Uint8 = u8;
+pub type Uint16 = u16;
+pub type Uint32 = u32;
+pub type Uint64 = u64;
+pub type Sint32 = i32;
+pub type SDL_InitFlags = u32;
+pub type SDL_WindowFlags = u64;
+pub type SDL_AudioDeviceID = u32;
+pub type SDL_AudioFormat = ::std::os::raw::c_uint;
+pub type SDL_PixelFormat = ::std::os::raw::c_uint;
+pub type SDL_TextureAccess = ::std::os::raw::c_uint;
+pub type SDL_RendererLogicalPresentation = ::std::os::raw::c_uint;
+pub type SDL_BlendMode = u32;
+pub type SDL_Keycode = u32;
+pub type SDL_EventType = u32;
+pub type SDL_AudioStreamCallback = Option<
+    unsafe extern "C" fn(
+        *mut ::std::os::raw::c_void,
+        *mut SDL_AudioStream,
+        ::std::os::raw::c_int,
+        ::std::os::raw::c_int,
+    ),
+>;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SDL_AudioSpec {
+    pub format: SDL_AudioFormat,
+    pub channels: ::std::os::raw::c_int,
+    pub freq: ::std::os::raw::c_int,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SDL_FRect {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SDL_KeyboardEvent {
+    pub type_: u32,
+    pub key: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SDL_WindowEvent {
+    pub type_: u32,
+    pub data1: i32,
+    pub data2: i32,
+}
+
+#[repr(C)]
+pub union SDL_Event {
+    pub type_: u32,
+    pub key: SDL_KeyboardEvent,
+    pub window: SDL_WindowEvent,
+}
+
+// イベント型定数
+pub const SDL_EventType_SDL_EVENT_QUIT: u32 = 0x100;
+pub const SDL_EventType_SDL_EVENT_KEY_DOWN: u32 = 0x300;
+pub const SDL_EventType_SDL_EVENT_KEY_UP: u32 = 0x301;
+pub const SDL_EventType_SDL_EVENT_WINDOW_RESIZED: u32 = 0x206;
+pub const SDL_EventType_SDL_EVENT_WINDOW_CLOSE_REQUESTED: u32 = 0x210;
+// キーコード定数
+pub const SDLK_ESCAPE: u32 = 27;
+pub const SDLK_S: u32 = 115;
+// ブレンドモード定数
+pub const SDL_BLENDMODE_BLEND: u32 = 1;
+// デバッグテキスト定数
+pub const SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE: i32 = 8;
+// 初期化フラグ
+pub const SDL_INIT_VIDEO: u32 = 32;
+pub const SDL_INIT_AUDIO: u32 = 16;
+// 音声フォーマット
+pub const SDL_AudioFormat_SDL_AUDIO_S16: SDL_AudioFormat = 32784;
+pub const SDL_AudioFormat_SDL_AUDIO_F32: SDL_AudioFormat = 33056;
+// ピクセルフォーマット
+pub const SDL_PixelFormat_SDL_PIXELFORMAT_IYUV: SDL_PixelFormat = 1448433993;
+pub const SDL_PixelFormat_SDL_PIXELFORMAT_NV12: SDL_PixelFormat = 842094158;
+pub const SDL_PixelFormat_SDL_PIXELFORMAT_YUY2: SDL_PixelFormat = 1499870533;
+pub const SDL_PixelFormat_SDL_PIXELFORMAT_RGBA8888: SDL_PixelFormat = 373694468;
+pub const SDL_PixelFormat_SDL_PIXELFORMAT_ARGB8888: SDL_PixelFormat = 372645892;
+// テクスチャアクセス
+pub const SDL_TextureAccess_SDL_TEXTUREACCESS_STREAMING: SDL_TextureAccess = 1;
+// 論理プレゼンテーション
+pub const SDL_RendererLogicalPresentation_SDL_LOGICAL_PRESENTATION_LETTERBOX: SDL_RendererLogicalPresentation = 2;
+
+pub fn SDL_Init(_flags: SDL_InitFlags) -> bool { false }
+pub fn SDL_Quit() {}
+pub fn SDL_GetError() -> *const ::std::os::raw::c_char { ::std::ptr::null() }
+pub fn SDL_CreateWindow(
+    _title: *const ::std::os::raw::c_char,
+    _w: ::std::os::raw::c_int,
+    _h: ::std::os::raw::c_int,
+    _flags: SDL_WindowFlags,
+) -> *mut SDL_Window { ::std::ptr::null_mut() }
+pub fn SDL_DestroyWindow(_window: *mut SDL_Window) {}
+pub fn SDL_GetWindowSize(
+    _window: *mut SDL_Window,
+    _w: *mut ::std::os::raw::c_int,
+    _h: *mut ::std::os::raw::c_int,
+) -> bool { false }
+pub fn SDL_SetWindowSize(
+    _window: *mut SDL_Window,
+    _w: ::std::os::raw::c_int,
+    _h: ::std::os::raw::c_int,
+) -> bool { false }
+pub fn SDL_SetWindowTitle(
+    _window: *mut SDL_Window,
+    _title: *const ::std::os::raw::c_char,
+) -> bool { false }
+pub fn SDL_CreateRenderer(
+    _window: *mut SDL_Window,
+    _name: *const ::std::os::raw::c_char,
+) -> *mut SDL_Renderer { ::std::ptr::null_mut() }
+pub fn SDL_DestroyRenderer(_renderer: *mut SDL_Renderer) {}
+pub fn SDL_RenderClear(_renderer: *mut SDL_Renderer) -> bool { false }
+pub fn SDL_RenderPresent(_renderer: *mut SDL_Renderer) -> bool { false }
+pub fn SDL_RenderTexture(
+    _renderer: *mut SDL_Renderer,
+    _texture: *mut SDL_Texture,
+    _srcrect: *const SDL_FRect,
+    _dstrect: *const SDL_FRect,
+) -> bool { false }
+pub fn SDL_SetRenderDrawColor(
+    _renderer: *mut SDL_Renderer,
+    _r: Uint8,
+    _g: Uint8,
+    _b: Uint8,
+    _a: Uint8,
+) -> bool { false }
+pub fn SDL_SetRenderDrawBlendMode(
+    _renderer: *mut SDL_Renderer,
+    _blend_mode: SDL_BlendMode,
+) -> bool { false }
+pub fn SDL_RenderFillRect(
+    _renderer: *mut SDL_Renderer,
+    _rect: *const SDL_FRect,
+) -> bool { false }
+pub fn SDL_RenderDebugText(
+    _renderer: *mut SDL_Renderer,
+    _x: f32,
+    _y: f32,
+    _str: *const ::std::os::raw::c_char,
+) -> bool { false }
+pub fn SDL_GetRenderOutputSize(
+    _renderer: *mut SDL_Renderer,
+    _w: *mut ::std::os::raw::c_int,
+    _h: *mut ::std::os::raw::c_int,
+) -> bool { false }
+pub fn SDL_GetRenderScale(
+    _renderer: *mut SDL_Renderer,
+    _scale_x: *mut f32,
+    _scale_y: *mut f32,
+) -> bool { false }
+pub fn SDL_SetRenderScale(
+    _renderer: *mut SDL_Renderer,
+    _scale_x: f32,
+    _scale_y: f32,
+) -> bool { false }
+pub fn SDL_GetRendererName(_renderer: *mut SDL_Renderer) -> *const ::std::os::raw::c_char {
+    ::std::ptr::null()
+}
+pub fn SDL_SetRenderLogicalPresentation(
+    _renderer: *mut SDL_Renderer,
+    _w: ::std::os::raw::c_int,
+    _h: ::std::os::raw::c_int,
+    _mode: SDL_RendererLogicalPresentation,
+) -> bool { false }
+pub fn SDL_SetRenderVSync(
+    _renderer: *mut SDL_Renderer,
+    _vsync: ::std::os::raw::c_int,
+) -> bool { false }
+pub fn SDL_CreateTexture(
+    _renderer: *mut SDL_Renderer,
+    _format: SDL_PixelFormat,
+    _access: SDL_TextureAccess,
+    _w: ::std::os::raw::c_int,
+    _h: ::std::os::raw::c_int,
+) -> *mut SDL_Texture { ::std::ptr::null_mut() }
+pub fn SDL_DestroyTexture(_texture: *mut SDL_Texture) {}
+pub fn SDL_UpdateYUVTexture(
+    _texture: *mut SDL_Texture,
+    _rect: *const SDL_Rect,
+    _yplane: *const Uint8,
+    _ypitch: ::std::os::raw::c_int,
+    _uplane: *const Uint8,
+    _upitch: ::std::os::raw::c_int,
+    _vplane: *const Uint8,
+    _vpitch: ::std::os::raw::c_int,
+) -> bool { false }
+pub fn SDL_UpdateNVTexture(
+    _texture: *mut SDL_Texture,
+    _rect: *const SDL_Rect,
+    _yplane: *const Uint8,
+    _ypitch: ::std::os::raw::c_int,
+    _uvplane: *const Uint8,
+    _uvpitch: ::std::os::raw::c_int,
+) -> bool { false }
+pub fn SDL_UpdateTexture(
+    _texture: *mut SDL_Texture,
+    _rect: *const SDL_Rect,
+    _pixels: *const ::std::os::raw::c_void,
+    _pitch: ::std::os::raw::c_int,
+) -> bool { false }
+pub fn SDL_OpenAudioDeviceStream(
+    _devid: SDL_AudioDeviceID,
+    _spec: *const SDL_AudioSpec,
+    _callback: SDL_AudioStreamCallback,
+    _userdata: *mut ::std::os::raw::c_void,
+) -> *mut SDL_AudioStream { ::std::ptr::null_mut() }
+pub fn SDL_DestroyAudioStream(_stream: *mut SDL_AudioStream) {}
+pub fn SDL_PutAudioStreamData(
+    _stream: *mut SDL_AudioStream,
+    _buf: *const ::std::os::raw::c_void,
+    _len: ::std::os::raw::c_int,
+) -> bool { false }
+pub fn SDL_GetAudioStreamQueued(_stream: *mut SDL_AudioStream) -> ::std::os::raw::c_int { 0 }
+pub fn SDL_PauseAudioStreamDevice(_stream: *mut SDL_AudioStream) -> bool { false }
+pub fn SDL_ResumeAudioStreamDevice(_stream: *mut SDL_AudioStream) -> bool { false }
+pub fn SDL_ClearAudioStream(_stream: *mut SDL_AudioStream) -> bool { false }
+pub fn SDL_SetAudioStreamGain(_stream: *mut SDL_AudioStream, _gain: f32) -> bool { false }
+pub fn SDL_GetTicksNS() -> Uint64 { 0 }
+pub fn SDL_PollEvent(_event: *mut SDL_Event) -> bool { false }
+"#####,
         )
         .expect("write file error");
         return;

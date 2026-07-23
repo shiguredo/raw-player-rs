@@ -31,6 +31,8 @@
   - @voluntas
 - [FIX] examples/player の I420 UV 分割が短バッファでパニックする問題を修正する
   - @voluntas
+- [FIX] DOCS_RS ダミー bindings が不完全で cargo check が失敗する問題を修正する
+  - @voluntas
 
 ### misc
 
