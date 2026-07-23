@@ -2,7 +2,7 @@
 
 - Priority: High
 - Created: 2026-07-15
-- Completed:
+- Completed: 2026-07-23
 - Model: Grok 4.5
 - Branch: feature/fix-pause-stop-partial-failure-state
 - Polished: 2026-07-22
@@ -100,8 +100,10 @@
 
 ## 解決方法
 
-1. `AudioPlayer::pause` / `play` / `stop` を上記の期待順序に並べ替える（不可逆クリアを SDL 成功後へ）
-2. 失敗後も再試行で本体が走るよう、フラグ先行更新をやめる
-3. `VideoPlayer` は audio 成功後のみ映像更新の構造を維持し、rustdoc で契約を書く
-4. `AudioPlayer` / `VideoPlayer` の `play`/`pause`/`stop` に失敗時契約の rustdoc を追加する
-5. 成功経路の単体テストを追加する
+`AudioPlayer::play` / `pause` / `stop` でデバイス操作成功後にだけローカル状態を更新するよう並べ替えた。
+
+- `pause`: `stream.pause()?` の後に `playing = false`
+- `play`: `process_audio_queue?` → `resume?` の後にフラグ確定
+- `stop`: `pause?` → `clear?` の後にフラグ・キュー・カウンタ破棄（不可逆クリアを SDL 成功後へ）
+- `VideoPlayer` は audio 成功後のみ映像更新する構造を維持し、失敗時契約を rustdoc に記載した
+- `tests/test_audio_player.rs` に成功経路の単体テストを追加した

@@ -23,12 +23,16 @@
   - @voluntas
 - [FIX] 公開 Texture::update_* がバッファ長未検証のまま FFI する問題を修正する
   - @voluntas
+- [FIX] pause/stop/play の SDL 失敗時にフラグとデバイス状態が食い違う問題を修正する
+  - @voluntas
 
 ### misc
 
 - [UPDATE] prek.toml の builtin hooks を拡充し end-of-file-fixer の rustfmt 競合を回避する
   - @voluntas
 - [ADD] skills/raw-player/SKILL.md を追加する
+  - @voluntas
+- [FIX] SDL を使う統合テストをプロセス内 Mutex で直列化し並列実行時のクラッシュを防ぐ
   - @voluntas
 
 ## 2026.1.0

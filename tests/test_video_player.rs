@@ -2,21 +2,14 @@
 //!
 //! 映像のみ経路の pause / play で壁時計 skew が同期ドロップを起こさないことを検証する。
 
+mod common;
+
 use std::thread;
 use std::time::Duration;
 
 use raw_player::{AudioFormat, VideoPlayer};
 
-/// テスト用に SDL のダミードライバを設定する。
-///
-/// `VideoPlayer::new` / `init` より前に呼ぶこと。
-fn setup_sdl_dummy_drivers() {
-    // Safety: テストプロセス内・SDL 初期化前のみ。他テストとのデータ競合を避けるため unsafe。
-    unsafe {
-        std::env::set_var("SDL_VIDEODRIVER", "dummy");
-        std::env::set_var("SDL_AUDIODRIVER", "dummy");
-    }
-}
+use common::{SdlTestGuard, acquire_sdl};
 
 /// 指定 PTS で黒 I420 フレームを enqueue する。
 fn enqueue_black_i420(player: &VideoPlayer, width: i32, height: i32, pts_us: i64) {
@@ -31,8 +24,7 @@ fn enqueue_black_i420(player: &VideoPlayer, width: i32, height: i32, pts_us: i64
 }
 
 /// 映像のみ経路向けにプレイヤーを用意し、指定枚数のフレームを enqueue する。
-fn prepare_video_only_player(frame_count: usize) -> VideoPlayer {
-    setup_sdl_dummy_drivers();
+fn prepare_video_only_player(_guard: &SdlTestGuard, frame_count: usize) -> VideoPlayer {
     let player =
         VideoPlayer::new(64, 64, "test-video-only-pause").expect("VideoPlayer::new に失敗した");
     player.set_vsync(0).expect("set_vsync(0) に失敗した");
@@ -63,7 +55,8 @@ fn poll_until_rendered(player: &VideoPlayer) {
 /// 映像のみ再生で、sync_threshold を超える pause 後の play でも同期ドロップが増えないことを確認する。
 #[test]
 fn video_only_pause_play_does_not_sync_drop() {
-    let player = prepare_video_only_player(10);
+    let guard = acquire_sdl();
+    let player = prepare_video_only_player(&guard, 10);
     player.play().expect("play に失敗した");
     poll_until_rendered(&player);
 
@@ -92,7 +85,8 @@ fn video_only_pause_play_does_not_sync_drop() {
 /// 複数回の pause / play でも skew が蓄積せず、同期ドロップが増えないことを確認する。
 #[test]
 fn video_only_repeated_pause_play_does_not_accumulate_skew() {
-    let player = prepare_video_only_player(20);
+    let guard = acquire_sdl();
+    let player = prepare_video_only_player(&guard, 20);
     player.play().expect("play に失敗した");
     poll_until_rendered(&player);
 
@@ -124,7 +118,7 @@ fn video_only_repeated_pause_play_does_not_accumulate_skew() {
 /// 音声あり経路の pause / play で、本修正による同期ドロップ増が起きないことを確認する。
 #[test]
 fn audio_video_pause_play_does_not_worsen_sync_drops() {
-    setup_sdl_dummy_drivers();
+    let _guard = acquire_sdl();
     let player = VideoPlayer::new(64, 64, "test-av-pause").expect("VideoPlayer::new に失敗した");
     player.set_vsync(0).expect("set_vsync(0) に失敗した");
     player.set_max_video_queue_size(24);

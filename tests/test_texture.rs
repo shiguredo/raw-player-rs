@@ -3,24 +3,11 @@
 //! 長さ不足・不正 pitch・フォーマット不一致で FFI 前に Err になることと、
 //! 最小長ちょうど／余白ありで更新できることを検証する。
 
-use raw_player::{Error, Renderer, Texture, VideoFormat, Window, init};
+mod common;
 
-/// テスト用に SDL のダミードライバを設定し初期化する。
-fn setup_sdl() {
-    // Safety: テストプロセス内・SDL 初期化前のみ。
-    unsafe {
-        std::env::set_var("SDL_VIDEODRIVER", "dummy");
-        std::env::set_var("SDL_AUDIODRIVER", "dummy");
-    }
-    init().expect("SDL init に失敗した");
-}
+use raw_player::{Error, Renderer, Texture, VideoFormat, Window};
 
-fn make_renderer() -> (Window, Renderer) {
-    setup_sdl();
-    let window = Window::new("test-texture", 64, 64).expect("Window::new に失敗した");
-    let renderer = Renderer::new(&window).expect("Renderer::new に失敗した");
-    (window, renderer)
-}
+use common::acquire_sdl;
 
 fn assert_invalid_argument(err: Error) {
     match err {
@@ -29,8 +16,15 @@ fn assert_invalid_argument(err: Error) {
     }
 }
 
+fn make_renderer() -> (Window, Renderer) {
+    let window = Window::new("test-texture", 64, 64).expect("Window::new に失敗した");
+    let renderer = Renderer::new(&window).expect("Renderer::new に失敗した");
+    (window, renderer)
+}
+
 #[test]
 fn update_yuv_rejects_short_buffer_and_accepts_min_and_extra() {
+    let _guard = acquire_sdl();
     let (_window, renderer) = make_renderer();
     let mut tex = Texture::new(&renderer, VideoFormat::I420, 16, 16).expect("Texture::new");
     let y_pitch = 16;
@@ -59,6 +53,7 @@ fn update_yuv_rejects_short_buffer_and_accepts_min_and_extra() {
 
 #[test]
 fn update_nv12_rejects_short_buffer_and_accepts_min_and_extra() {
+    let _guard = acquire_sdl();
     let (_window, renderer) = make_renderer();
     let mut tex = Texture::new(&renderer, VideoFormat::NV12, 16, 16).expect("Texture::new");
     let y_pitch = 16;
@@ -85,6 +80,7 @@ fn update_nv12_rejects_short_buffer_and_accepts_min_and_extra() {
 
 #[test]
 fn update_packed_rejects_short_buffer_and_accepts_min_and_extra() {
+    let _guard = acquire_sdl();
     let (_window, renderer) = make_renderer();
     let mut tex = Texture::new(&renderer, VideoFormat::YUY2, 16, 8).expect("Texture::new");
     let pitch = 32; // width * 2
@@ -106,6 +102,7 @@ fn update_packed_rejects_short_buffer_and_accepts_min_and_extra() {
 
 #[test]
 fn update_rejects_negative_and_too_small_pitch() {
+    let _guard = acquire_sdl();
     let (_window, renderer) = make_renderer();
     let mut i420 = Texture::new(&renderer, VideoFormat::I420, 16, 16).expect("I420");
     let y = vec![0u8; 16 * 16];
@@ -137,6 +134,7 @@ fn update_rejects_negative_and_too_small_pitch() {
 
 #[test]
 fn update_rejects_format_mismatch() {
+    let _guard = acquire_sdl();
     let (_window, renderer) = make_renderer();
     let mut i420 = Texture::new(&renderer, VideoFormat::I420, 16, 16).expect("I420");
     let y = vec![0u8; 16 * 16];
@@ -172,6 +170,7 @@ fn update_rejects_format_mismatch() {
 
 #[test]
 fn update_yuv_rejects_odd_dimensions_when_texture_exists() {
+    let _guard = acquire_sdl();
     let (_window, renderer) = make_renderer();
     // Texture::new が奇数寸法を拒否しない場合に update 側で守る
     let created = Texture::new(&renderer, VideoFormat::I420, 15, 16);
@@ -190,6 +189,7 @@ fn update_yuv_rejects_odd_dimensions_when_texture_exists() {
 
 #[test]
 fn update_nv12_rejects_odd_dimensions_when_texture_exists() {
+    let _guard = acquire_sdl();
     let (_window, renderer) = make_renderer();
     let created = Texture::new(&renderer, VideoFormat::NV12, 16, 15);
     let Ok(mut tex) = created else {
@@ -205,6 +205,7 @@ fn update_nv12_rejects_odd_dimensions_when_texture_exists() {
 
 #[test]
 fn update_packed_rgba_min_length() {
+    let _guard = acquire_sdl();
     let (_window, renderer) = make_renderer();
     let mut tex = Texture::new(&renderer, VideoFormat::Rgba, 8, 4).expect("RGBA");
     let pitch = 32; // width * 4

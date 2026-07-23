@@ -120,44 +120,58 @@ impl AudioPlayer {
     }
 
     /// 再生を開始する。
+    ///
+    /// SDL のキュー投入と `resume` が成功したあとでのみ `playing` / `has_played` /
+    /// `play_start_time_ns` を確定する。
+    /// 途中で失敗した場合は呼び出し前のフラグを維持し、再試行でデバイス操作が再度走る。
+    /// `process` 成功・`resume` 失敗時にストリームへ載った PCM はロールバックしない。
     pub fn play(&self) -> Result<()> {
         let mut inner = self.inner.lock().unwrap();
         if !inner.playing {
+            // デバイス操作を先に行い、成功後にだけローカルフラグを更新する
+            Self::process_audio_queue(&mut inner)?;
+            if let Some(ref mut stream) = inner.stream {
+                stream.resume()?;
+            }
             inner.playing = true;
             inner.has_played = true;
             if inner.play_start_time_ns == 0 {
                 inner.play_start_time_ns = unsafe { ffi::SDL_GetTicksNS() };
-            }
-            Self::process_audio_queue(&mut inner)?;
-            if let Some(ref mut stream) = inner.stream {
-                stream.resume()?;
             }
         }
         Ok(())
     }
 
     /// 再生を一時停止する。
+    ///
+    /// ストリームの `pause` が成功したあとでのみ `playing = false` にする。
+    /// 失敗時は呼び出し前の論理状態を維持し、再試行で本体が再実行される。
     pub fn pause(&self) -> Result<()> {
         let mut inner = self.inner.lock().unwrap();
         if inner.playing {
-            inner.playing = false;
             if let Some(ref mut stream) = inner.stream {
                 stream.pause()?;
             }
+            inner.playing = false;
         }
         Ok(())
     }
 
     /// 再生を停止してキューをクリアする。
+    ///
+    /// ストリームの `pause` と `clear` が成功したあとでのみフラグ・アプリキュー・カウンタを破棄する。
+    /// `pause` 成功・`clear` 失敗時はデバイスは pause 済み・アプリキューは未クリア・フラグは呼び出し前のまま。
+    /// 再試行では `pause` → `clear` → ローカル破棄をそのまま再実行する。
     pub fn stop(&self) -> Result<()> {
         let mut inner = self.inner.lock().unwrap();
-        inner.playing = false;
-        inner.has_played = false;
-        inner.audio_queue.clear();
+        // 不可逆なキュー破棄より先にデバイス操作を完了させる
         if let Some(ref mut stream) = inner.stream {
             stream.pause()?;
             stream.clear()?;
         }
+        inner.playing = false;
+        inner.has_played = false;
+        inner.audio_queue.clear();
         inner.samples_written = 0;
         inner.audio_started = false;
         inner.total_samples_enqueued = 0;
