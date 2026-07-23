@@ -33,6 +33,8 @@
   - @voluntas
 - [FIX] DOCS_RS ダミー bindings が不完全で cargo check が失敗する問題を修正する
   - @voluntas
+- [FIX] Texture::new が非正・過大の寸法を FFI 前に拒否しない問題を修正する
+  - @voluntas
 
 ### misc
 
