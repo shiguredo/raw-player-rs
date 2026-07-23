@@ -2,7 +2,7 @@
 
 - Priority: High
 - Created: 2026-07-15
-- Completed:
+- Completed: 2026-07-23
 - Model: Grok 4.5
 - Branch: feature/fix-video-only-pause-clock-skew
 - Polished: 2026-07-22
@@ -107,8 +107,9 @@ pause 時に `video_only_started = false` へ落として再開時に再アン�
 
 ## 解決方法
 
-1. `VideoPlayerInner` に `pause_started_ns: Option<u64>` を追加し、初期化で `None` にする（`None` = 補正待ちなし）
-2. `pause()`: `audio.pause()?` 成功後、対象条件（`video_only_started && !self.audio.is_started()`）かつ `playing` true→false かつ `pause_started_ns` が `None` のときだけ `Some(now)` を入れる
-3. `play()`: `audio.play()?` 成功後、`pause_started_ns` が `Some(t)` なら `now >= t` のときだけ `video_start_time_ns += now - t` とし、`is_started` の再判定はせずいずれにせよ `None` に戻す
-4. `stop()` / `drain_video()` でも `pause_started_ns = None` にする
-5. `tests/test_video_player.rs` に上記テスト戦略の単体テストを追加する（`VideoPlayer::new` 前に `SDL_VIDEODRIVER=dummy` 等をテスト内で設定してよい）
+`VideoPlayerInner` に `pause_started_ns: Option<u64>` を追加した。
+
+- `pause()`: `audio.pause()` 成功後、映像のみかつ `video_only_started` かつ `playing` true→false かつ未記録のときだけ開始時刻を記録する
+- `play()`: `audio.play()` 成功後、記録があれば経過分を `video_start_time_ns` へ加算してからクリアする（時刻逆転時は加算せずクリアのみ）
+- `stop()` / `drain_video()` でも `pause_started_ns` を `None` にする
+- `tests/test_video_player.rs` に映像のみ・複数回 pause/play・音声あり非退行の単体テストを追加した

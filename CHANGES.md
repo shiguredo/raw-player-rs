@@ -19,6 +19,8 @@
   - @voluntas
 - [FIX] video_player.rs の手動ゼロ除算チェックを checked_div に置き換える
   - @voluntas
+- [FIX] 映像のみ再生で pause 中の壁時計が進み再開直後にフレームが同期ドロップする問題を修正する
+  - @voluntas
 
 ### misc
 
