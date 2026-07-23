@@ -698,6 +698,9 @@ impl VideoPlayer {
     }
 
     /// 再生を開始する。
+    ///
+    /// 音声側 (`AudioPlayer::play`) が成功したあとでのみ映像フラグと pause 補正を更新する。
+    /// 音声が `Err` のときは映像側を一切触らない。
     pub fn play(&self) -> Result<()> {
         self.audio.play()?;
         let mut inner = self.inner.lock().unwrap();
@@ -722,6 +725,9 @@ impl VideoPlayer {
     }
 
     /// 再生を一時停止する。
+    ///
+    /// 音声側 (`AudioPlayer::pause`) が成功したあとでのみ映像フラグと pause 開始時刻を更新する。
+    /// 音声が `Err` のときは映像側を一切触らない。
     pub fn pause(&self) -> Result<()> {
         self.audio.pause()?;
         // 映像のみ経路の判定に使う。audio.pause 成功後に読む（失敗時は映像側を触らない）
@@ -741,6 +747,9 @@ impl VideoPlayer {
     }
 
     /// 再生を停止してキューをクリアする。
+    ///
+    /// 音声側 (`AudioPlayer::stop`) が成功したあとでのみ映像キューとフラグを破棄する。
+    /// 音声が `Err` のときは映像側を一切触らない。
     pub fn stop(&self) -> Result<()> {
         self.audio.stop()?;
         let mut inner = self.inner.lock().unwrap();

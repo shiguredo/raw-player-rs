@@ -23,6 +23,8 @@
   - @voluntas
 - [FIX] 公開 Texture::update_* がバッファ長未検証のまま FFI する問題を修正する
   - @voluntas
+- [FIX] pause/stop/play の SDL 失敗時にフラグとデバイス状態が食い違う問題を修正する
+  - @voluntas
 
 ### misc
 
