@@ -5,6 +5,7 @@ use crate::video_format::VideoFormat;
 use std::ptr::NonNull;
 
 /// pitch 下限の `width * 4` 相当が i32 で溢れないようにする上限。
+/// 公開 Texture の保持寸法を validate / update 前提に揃える。
 const MAX_DIMENSION: i32 = i32::MAX / 4;
 
 pub struct Texture {
@@ -16,7 +17,17 @@ pub struct Texture {
 
 impl Texture {
     /// 指定フォーマットのストリーミングテクスチャを作成する。
+    ///
+    /// 非正または `MAX_DIMENSION` 超の寸法は FFI 前に `InvalidArgument` を返す。
     pub fn new(renderer: &Renderer, format: VideoFormat, width: i32, height: i32) -> Result<Self> {
+        if width <= 0 || height <= 0 {
+            return Err(Error::invalid_argument("width and height must be positive"));
+        }
+        if width > MAX_DIMENSION || height > MAX_DIMENSION {
+            return Err(Error::invalid_argument(format!(
+                "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+            )));
+        }
         let raw = unsafe {
             ffi::SDL_CreateTexture(
                 renderer.as_ptr(),
