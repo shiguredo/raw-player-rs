@@ -25,6 +25,8 @@
   - @voluntas
 - [FIX] pause/stop/play の SDL 失敗時にフラグとデバイス状態が食い違う問題を修正する
   - @voluntas
+- [FIX] enqueue_video_pixel_buffer が対応フォーマットと偶数寸法を enqueue 時に検証しない問題を修正する
+  - @voluntas
 
 ### misc
 

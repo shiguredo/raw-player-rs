@@ -24,7 +24,8 @@ pub use texture::Texture;
 pub use video_format::VideoFormat;
 pub use video_player::{
     VideoPlayer, VideoPlayerStats, validate_bgra, validate_i420, validate_i420_strided,
-    validate_nv12, validate_nv12_strided, validate_rgba, validate_yuy2, validate_yuy2_strided,
+    validate_nv12, validate_nv12_strided, validate_pixel_buffer_enqueue, validate_rgba,
+    validate_yuy2, validate_yuy2_strided,
 };
 pub use window::Window;
 

@@ -7,7 +7,7 @@ mod common;
 use std::thread;
 use std::time::Duration;
 
-use raw_player::{AudioFormat, VideoPlayer};
+use raw_player::{AudioFormat, Error, VideoFormat, VideoPlayer, validate_pixel_buffer_enqueue};
 
 use common::{SdlTestGuard, acquire_sdl};
 
@@ -170,4 +170,45 @@ fn audio_video_pause_play_does_not_worsen_sync_drops() {
         0,
         "音声あり経路で同期ドロップが増えた: before={dropped0}, after={dropped1}"
     );
+}
+
+fn assert_invalid_argument(err: Error) {
+    match err {
+        Error::InvalidArgument(_) => {}
+        other => panic!("InvalidArgument を期待したが得た: {other}"),
+    }
+}
+
+/// PixelBuffer enqueue が非対応フォーマットを拒否することを確認する。
+#[test]
+fn pixel_buffer_enqueue_rejects_unsupported_formats() {
+    for format in [VideoFormat::YUY2, VideoFormat::Rgba, VideoFormat::Bgra] {
+        assert_invalid_argument(
+            validate_pixel_buffer_enqueue(format, 16, 16).expect_err("非対応 format は Err"),
+        );
+    }
+}
+
+/// PixelBuffer enqueue が I420/NV12 の奇数寸法を拒否することを確認する。
+#[test]
+fn pixel_buffer_enqueue_rejects_odd_dimensions() {
+    assert_invalid_argument(
+        validate_pixel_buffer_enqueue(VideoFormat::I420, 15, 16).expect_err("奇数幅 I420 は Err"),
+    );
+    assert_invalid_argument(
+        validate_pixel_buffer_enqueue(VideoFormat::I420, 16, 15).expect_err("奇数高さ I420 は Err"),
+    );
+    assert_invalid_argument(
+        validate_pixel_buffer_enqueue(VideoFormat::NV12, 15, 16).expect_err("奇数幅 NV12 は Err"),
+    );
+    assert_invalid_argument(
+        validate_pixel_buffer_enqueue(VideoFormat::NV12, 16, 15).expect_err("奇数高さ NV12 は Err"),
+    );
+}
+
+/// PixelBuffer enqueue が偶数・正値の I420/NV12 を受け入れることを確認する。
+#[test]
+fn pixel_buffer_enqueue_accepts_even_i420_nv12() {
+    validate_pixel_buffer_enqueue(VideoFormat::I420, 16, 16).expect("偶数 I420 は Ok");
+    validate_pixel_buffer_enqueue(VideoFormat::NV12, 32, 18).expect("偶数 NV12 は Ok");
 }

@@ -280,6 +280,43 @@ pub fn validate_bgra(data: &[u8], width: i32, height: i32) -> Result<()> {
     validate_packed_4bpp(data, width, height, "BGRA")
 }
 
+/// PixelBuffer enqueue 用: 対応フォーマットと偶数寸法を検証する（ロック不要）。
+///
+/// `enqueue_video_pixel_buffer` が `from_ptr` より前に呼ぶ。実プレーン整合は描画時検証のまま。
+pub fn validate_pixel_buffer_enqueue(format: VideoFormat, width: i32, height: i32) -> Result<()> {
+    if width <= 0 || height <= 0 {
+        return Err(Error::invalid_argument("width and height must be positive"));
+    }
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::invalid_argument(format!(
+            "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+        )));
+    }
+    match format {
+        VideoFormat::I420 => {
+            if width % 2 != 0 || height % 2 != 0 {
+                return Err(Error::invalid_argument(
+                    "I420 requires even width and height",
+                ));
+            }
+        }
+        VideoFormat::NV12 => {
+            if width % 2 != 0 || height % 2 != 0 {
+                return Err(Error::invalid_argument(
+                    "NV12 requires even width and height",
+                ));
+            }
+        }
+        other => {
+            return Err(Error::invalid_argument(format!(
+                "PixelBuffer does not support format: {}",
+                other.name()
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct VideoPlayerStats {
     pub video_queue_size: usize,
@@ -650,6 +687,11 @@ impl VideoPlayer {
     /// `pixel_buffer_ptr` は `PixelBuffer::as_ptr()` から取得した CVPixelBuffer ポインタ。
     /// 内部で CFRetain するため、呼び出し元はこの関数の後にポインタ元を drop してよい。
     ///
+    /// `y_pitch` / `uv_pitch` は `VideoFrame` に保存されるが、PixelBuffer 描画では
+    /// CVPixelBuffer の実 stride を使うため参照されない。
+    ///
+    /// 対応フォーマットは I420 / NV12 のみ。奇数寸法は拒否する。
+    ///
     /// # Safety
     ///
     /// `pixel_buffer_ptr` は有効な CVPixelBuffer へのポインタでなければならない。
@@ -664,14 +706,8 @@ impl VideoPlayer {
         uv_pitch: i32,
         pts_us: i64,
     ) -> Result<()> {
-        if width <= 0 || height <= 0 {
-            return Err(Error::invalid_argument("width and height must be positive"));
-        }
-        if width > MAX_DIMENSION || height > MAX_DIMENSION {
-            return Err(Error::invalid_argument(format!(
-                "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
-            )));
-        }
+        // from_ptr より前に format / 偶数を検証する（非 macOS でも Err を返せる）
+        validate_pixel_buffer_enqueue(format, width, height)?;
         let pixel_buffer_ref = unsafe { PixelBufferRef::from_ptr(pixel_buffer_ptr)? };
         self.enqueue_frame(VideoFrame {
             pts_us,
