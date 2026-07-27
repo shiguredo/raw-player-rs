@@ -193,7 +193,14 @@ let player = AudioPlayer::new();
 // PCM データをキューに追加
 player.enqueue_audio(&pcm_data, 0, 48000, 2, AudioFormat::F32)?;
 player.play()?;
+
+// 再生中に追加した分は process() で SDL へ流す
+player.enqueue_audio(&more_pcm, pts_us, 48000, 2, AudioFormat::F32)?;
+player.process()?;
 ```
+
+`pause()` 後に `stop()` せず再 enqueue すると `NotPlaying` になります。
+キューを捨ててやり直す場合は `stop()` のあと enqueue → `play()` してください。
 
 ## API リファレンス
 
@@ -216,7 +223,7 @@ let player = VideoPlayer::new(width, height, title)?;
 | `enqueue_video_rgba(data, width, height, pts_us)` | RGBA フレームをキューに追加 |
 | `enqueue_video_bgra(data, width, height, pts_us)` | BGRA フレームをキューに追加 |
 | `enqueue_video_bgra_owned(data, width, height, pts_us)` | BGRA フレームをキューに追加 (所有権移動によるゼロコピー) |
-| `enqueue_video_pixel_buffer(ptr, format, width, height, y_pitch, uv_pitch, pts_us)` | CVPixelBuffer をキューに追加 (macOS ゼロコピー、`unsafe`) |
+| `enqueue_video_pixel_buffer(ptr, format, width, height, y_pitch, uv_pitch, pts_us)` | CVPixelBuffer をキューに追加 (macOS ゼロコピー、`unsafe`。対応は I420 / NV12 のみ。奇数寸法は拒否) |
 | `enqueue_audio(data, pts_us, sample_rate, channels, format)` | 音声データをキューに追加 |
 | `play()` | 再生開始 |
 | `pause()` | 一時停止 |
@@ -254,15 +261,19 @@ let player = AudioPlayer::new();
 
 | メソッド | 説明 |
 | --- | --- |
-| `enqueue_audio(data, pts_us, sample_rate, channels, format)` | 音声データをキューに追加 |
+| `enqueue_audio(data, pts_us, sample_rate, channels, format)` | 音声データをキューに追加 (pause 後は `NotPlaying`) |
 | `play()` | 再生開始 |
 | `pause()` | 一時停止 |
 | `stop()` | 停止してキューをクリア |
+| `process()` | アプリキューを SDL ストリームへフラッシュ (再生中のみ。連続 enqueue 時に呼ぶ) |
+| `audio_clock_us()` | 音声再生位置 (マイクロ秒) |
 | `stats()` | 統計情報を取得 |
 
 | プロパティ | 説明 |
 | --- | --- |
 | `is_playing()` | 再生中か |
+| `is_started()` | 音声再生が開始されたか |
+| `audio_queue_ms()` | 音声キューのバッファ量 (ミリ秒) |
 | `volume()` | 音量 (0.0 - 1.0) |
 | `set_volume(volume)` | 音量を設定 |
 
@@ -303,6 +314,7 @@ fn main() -> raw_player::Result<()> {
 ローカル開発では `source-build` を付けるのが現実的です。
 
 macOS ではカメラが CVPixelBuffer を返せる場合、`enqueue_video_pixel_buffer` によるゼロコピー再生になります。
+対応フォーマットは I420 / NV12 のみで、幅・高さは偶数である必要があります。
 MJPEG は圧縮形式のため、本ライブラリではそのまま再生できません。
 
 ```bash
