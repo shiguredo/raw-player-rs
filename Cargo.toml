@@ -2,7 +2,7 @@
 name = "raw_player"
 version = "2026.2.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.93"
 description = "Raw audio/video player for Rust"
 readme = "README.md"
 homepage = "https://github.com/shiguredo/raw-player-rs"
