@@ -280,6 +280,43 @@ pub fn validate_bgra(data: &[u8], width: i32, height: i32) -> Result<()> {
     validate_packed_4bpp(data, width, height, "BGRA")
 }
 
+/// PixelBuffer enqueue 用: 対応フォーマットと偶数寸法を検証する（ロック不要）。
+///
+/// `enqueue_video_pixel_buffer` が `from_ptr` より前に呼ぶ。実プレーン整合は描画時検証のまま。
+pub fn validate_pixel_buffer_enqueue(format: VideoFormat, width: i32, height: i32) -> Result<()> {
+    if width <= 0 || height <= 0 {
+        return Err(Error::invalid_argument("width and height must be positive"));
+    }
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return Err(Error::invalid_argument(format!(
+            "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
+        )));
+    }
+    match format {
+        VideoFormat::I420 => {
+            if width % 2 != 0 || height % 2 != 0 {
+                return Err(Error::invalid_argument(
+                    "I420 requires even width and height",
+                ));
+            }
+        }
+        VideoFormat::NV12 => {
+            if width % 2 != 0 || height % 2 != 0 {
+                return Err(Error::invalid_argument(
+                    "NV12 requires even width and height",
+                ));
+            }
+        }
+        other => {
+            return Err(Error::invalid_argument(format!(
+                "PixelBuffer does not support format: {}",
+                other.name()
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct VideoPlayerStats {
     pub video_queue_size: usize,
@@ -328,6 +365,8 @@ struct VideoPlayerInner {
     video_start_time_ns: u64,
     first_video_pts_us: i64,
     video_only_started: bool,
+    // 映像のみ経路で pause 開始時刻を保持し、再開時に壁時計へ加算する（None = 補正待ちなし）
+    pause_started_ns: Option<u64>,
 
     // 同期設定
     sync_threshold_us: i64,
@@ -402,6 +441,7 @@ impl VideoPlayer {
                 video_start_time_ns: 0,
                 first_video_pts_us: 0,
                 video_only_started: false,
+                pause_started_ns: None,
 
                 sync_threshold_us: 40_000,
                 max_video_queue_size: 5,
@@ -647,6 +687,11 @@ impl VideoPlayer {
     /// `pixel_buffer_ptr` は `PixelBuffer::as_ptr()` から取得した CVPixelBuffer ポインタ。
     /// 内部で CFRetain するため、呼び出し元はこの関数の後にポインタ元を drop してよい。
     ///
+    /// `y_pitch` / `uv_pitch` は `VideoFrame` に保存されるが、PixelBuffer 描画では
+    /// CVPixelBuffer の実 stride を使うため参照されない。
+    ///
+    /// 対応フォーマットは I420 / NV12 のみ。奇数寸法は拒否する。
+    ///
     /// # Safety
     ///
     /// `pixel_buffer_ptr` は有効な CVPixelBuffer へのポインタでなければならない。
@@ -661,14 +706,8 @@ impl VideoPlayer {
         uv_pitch: i32,
         pts_us: i64,
     ) -> Result<()> {
-        if width <= 0 || height <= 0 {
-            return Err(Error::invalid_argument("width and height must be positive"));
-        }
-        if width > MAX_DIMENSION || height > MAX_DIMENSION {
-            return Err(Error::invalid_argument(format!(
-                "dimensions too large: {width}x{height} (max {MAX_DIMENSION})"
-            )));
-        }
+        // from_ptr より前に format / 偶数を検証する（非 macOS でも Err を返せる）
+        validate_pixel_buffer_enqueue(format, width, height)?;
         let pixel_buffer_ref = unsafe { PixelBufferRef::from_ptr(pixel_buffer_ptr)? };
         self.enqueue_frame(VideoFrame {
             pts_us,
@@ -695,9 +734,21 @@ impl VideoPlayer {
     }
 
     /// 再生を開始する。
+    ///
+    /// 音声側 (`AudioPlayer::play`) が成功したあとでのみ映像フラグと pause 補正を更新する。
+    /// 音声が `Err` のときは映像側を一切触らない。
     pub fn play(&self) -> Result<()> {
         self.audio.play()?;
         let mut inner = self.inner.lock().unwrap();
+        // 映像のみ経路で pause 中に進んだ壁時計分を video_start_time_ns へ加算する。
+        // 補正条件は pause_started_ns の有無のみ（音声開始の再判定はしない）。
+        if let Some(pause_started) = inner.pause_started_ns.take() {
+            let now = unsafe { ffi::SDL_GetTicksNS() };
+            // 逆転時は加算をスキップし、フラグだけクリアする（巨大な unsigned 引き算を避ける）
+            if now >= pause_started {
+                inner.video_start_time_ns += now - pause_started;
+            }
+        }
         if !inner.playing {
             inner.playing = true;
             inner.has_played = true;
@@ -710,14 +761,31 @@ impl VideoPlayer {
     }
 
     /// 再生を一時停止する。
+    ///
+    /// 音声側 (`AudioPlayer::pause`) が成功したあとでのみ映像フラグと pause 開始時刻を更新する。
+    /// 音声が `Err` のときは映像側を一切触らない。
     pub fn pause(&self) -> Result<()> {
         self.audio.pause()?;
+        // 映像のみ経路の判定に使う。audio.pause 成功後に読む（失敗時は映像側を触らない）
+        let audio_started = self.audio.is_started();
         let mut inner = self.inner.lock().unwrap();
+        let was_playing = inner.playing;
         inner.playing = false;
+        // 映像のみかつ初回描画済みの pause 遷移時だけ開始時刻を記録する（上書きしない）
+        if was_playing
+            && inner.video_only_started
+            && !audio_started
+            && inner.pause_started_ns.is_none()
+        {
+            inner.pause_started_ns = Some(unsafe { ffi::SDL_GetTicksNS() });
+        }
         Ok(())
     }
 
     /// 再生を停止してキューをクリアする。
+    ///
+    /// 音声側 (`AudioPlayer::stop`) が成功したあとでのみ映像キューとフラグを破棄する。
+    /// 音声が `Err` のときは映像側を一切触らない。
     pub fn stop(&self) -> Result<()> {
         self.audio.stop()?;
         let mut inner = self.inner.lock().unwrap();
@@ -728,6 +796,7 @@ impl VideoPlayer {
         inner.video_only_started = false;
         inner.video_start_time_ns = 0;
         inner.first_video_pts_us = 0;
+        inner.pause_started_ns = None;
         inner.dropped_frames = 0;
         inner.repeated_frames = 0;
         inner.total_frames_enqueued = 0;
@@ -911,27 +980,23 @@ impl VideoPlayer {
             video_buffer_ms,
             elapsed_time_ms: elapsed_ms,
             video_bitrate_kbps,
-            avg_texture_update_us: if inner.render_count > 0 {
-                inner.render_texture_update_us / inner.render_count
-            } else {
-                0
-            },
+            avg_texture_update_us: inner
+                .render_texture_update_us
+                .checked_div(inner.render_count)
+                .unwrap_or(0),
             max_texture_update_us: inner.render_tex_max_us,
-            avg_clear_copy_us: if inner.render_count > 0 {
-                inner.render_clear_copy_us / inner.render_count
-            } else {
-                0
-            },
-            avg_present_us: if inner.render_count > 0 {
-                inner.render_present_us / inner.render_count
-            } else {
-                0
-            },
-            avg_vsync_interval_us: if inner.render_vsync_count > 0 {
-                inner.render_vsync_interval_us / inner.render_vsync_count
-            } else {
-                0
-            },
+            avg_clear_copy_us: inner
+                .render_clear_copy_us
+                .checked_div(inner.render_count)
+                .unwrap_or(0),
+            avg_present_us: inner
+                .render_present_us
+                .checked_div(inner.render_count)
+                .unwrap_or(0),
+            avg_vsync_interval_us: inner
+                .render_vsync_interval_us
+                .checked_div(inner.render_vsync_count)
+                .unwrap_or(0),
         }
     }
 
@@ -950,6 +1015,7 @@ impl VideoPlayer {
         inner.video_only_started = false;
         inner.video_start_time_ns = 0;
         inner.first_video_pts_us = 0;
+        inner.pause_started_ns = None;
     }
 
     pub fn set_stats_overlay(&self, enabled: bool) {
@@ -1110,9 +1176,9 @@ impl VideoPlayer {
                             let u = lock.plane(1)?;
                             let v = lock.plane(2)?;
                             let y_pitch = lock.stride(0)?;
-                            let uv_pitch = lock.stride(1)?;
+                            let u_pitch = lock.stride(1)?;
+                            let v_pitch = lock.stride(2)?;
                             let chroma_h = h.div_ceil(2);
-                            let half_w = (frame.width as usize).div_ceil(2);
                             if lock.plane_height(0) < h
                                 || lock.plane_height(1) < chroma_h
                                 || lock.plane_height(2) < chroma_h
@@ -1124,15 +1190,13 @@ impl VideoPlayer {
                                     lock.plane_height(2),
                                 )));
                             }
-                            if (y_pitch as usize) < frame.width as usize
-                                || (uv_pitch as usize) < half_w
-                            {
-                                return Err(Error::invalid_argument(format!(
-                                    "I420 PixelBuffer stride insufficient: Y={y_pitch}, UV={uv_pitch}, required Y>={}, UV>={half_w}",
-                                    frame.width,
-                                )));
-                            }
-                            texture.update_yuv(y, y_pitch, u, uv_pitch, v, uv_pitch)?;
+                            validate_i420_pixel_buffer_strides(
+                                frame.width,
+                                y_pitch,
+                                u_pitch,
+                                v_pitch,
+                            )?;
+                            texture.update_yuv(y, y_pitch, u, u_pitch, v, v_pitch)?;
                         }
                         _ => {
                             return Err(Error::invalid_argument(format!(
@@ -1304,5 +1368,60 @@ impl VideoPlayer {
         inner.renderer.set_scale(orig_sx, orig_sy)?;
 
         Ok(())
+    }
+}
+
+/// I420 PixelBuffer の Y/U/V stride 下限を検証する。
+///
+/// U と V が異なっても拒否しない。それぞれ `half_w` 以上であればよい。
+pub(crate) fn validate_i420_pixel_buffer_strides(
+    width: i32,
+    y_pitch: i32,
+    u_pitch: i32,
+    v_pitch: i32,
+) -> Result<()> {
+    let half_w = (width as usize).div_ceil(2);
+    if (y_pitch as usize) < width as usize
+        || (u_pitch as usize) < half_w
+        || (v_pitch as usize) < half_w
+    {
+        return Err(Error::invalid_argument(format!(
+            "I420 PixelBuffer stride insufficient: Y={y_pitch}, U={u_pitch}, V={v_pitch}, required Y>={width}, U/V>={half_w}"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod i420_pixel_buffer_stride_tests {
+    use super::validate_i420_pixel_buffer_strides;
+
+    #[test]
+    fn rejects_u_pitch_below_half_width() {
+        // width=16 → half_w=8。U=7 は不足、V=8 は足りる
+        let err = validate_i420_pixel_buffer_strides(16, 16, 7, 8).expect_err("U pitch 不足は Err");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("U=7") && msg.contains("V=8"),
+            "メッセージに U/V が含まれるべき: {msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_v_pitch_below_half_width() {
+        // V だけ不足
+        let err = validate_i420_pixel_buffer_strides(16, 16, 8, 7).expect_err("V pitch 不足は Err");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("U=8") && msg.contains("V=7"),
+            "メッセージに U/V が含まれるべき: {msg}"
+        );
+    }
+
+    #[test]
+    fn accepts_different_u_and_v_when_both_sufficient() {
+        // U≠V でもどちらも half_w 以上なら Ok
+        validate_i420_pixel_buffer_strides(16, 16, 8, 10).expect("U/V 不一致でも下限を満たせば Ok");
+        validate_i420_pixel_buffer_strides(16, 16, 12, 8).expect("U/V 不一致でも下限を満たせば Ok");
     }
 }

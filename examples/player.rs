@@ -218,7 +218,7 @@ fn list_devices() {
             if devices.is_empty() {
                 println!("  映像デバイスが見つかりません");
             } else {
-                for device in devices.devices() {
+                for device in &devices {
                     let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
                     let id = device.unique_id().unwrap_or_else(|_| "Unknown".to_string());
                     println!("  {name}");
@@ -247,7 +247,7 @@ fn list_devices() {
             if devices.is_empty() {
                 println!("  音声入力デバイスが見つかりません");
             } else {
-                for device in devices.devices() {
+                for device in &devices {
                     let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
                     let id = device.unique_id().unwrap_or_else(|_| "Unknown".to_string());
                     println!(
@@ -269,7 +269,8 @@ fn map_video_format(pf: PixelFormat) -> Option<raw_player::VideoFormat> {
         PixelFormat::Nv12 => Some(raw_player::VideoFormat::NV12),
         PixelFormat::I420 => Some(raw_player::VideoFormat::I420),
         PixelFormat::Yuy2 => Some(raw_player::VideoFormat::YUY2),
-        PixelFormat::Unknown(_) => None,
+        // MJPEG は圧縮形式のため raw_player ではそのまま再生できない
+        PixelFormat::Mjpeg | PixelFormat::Unknown(_) => None,
     }
 }
 
@@ -317,8 +318,26 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
             let Some(uv_data) = frame.uv_data else {
                 return Ok(());
             };
-            let uv_h = frame.height as usize / 2;
-            let u_plane_size = frame.stride_uv as usize * uv_h;
+            // 負の stride/height や短すぎる UV はスライス前に弾き、パニックを防ぐ
+            let skip_uv = if frame.stride_uv < 0 || frame.height < 0 {
+                true
+            } else {
+                match (frame.stride_uv as usize).checked_mul((frame.height as usize) / 2) {
+                    Some(u_plane_size) => uv_data.len() < u_plane_size,
+                    None => true,
+                }
+            };
+            if skip_uv {
+                use std::sync::Once;
+                static WARN_I420_UV: Once = Once::new();
+                WARN_I420_UV.call_once(|| {
+                    eprintln!(
+                        "警告: I420 の UV データが短すぎるか stride が不正なためフレームをスキップします"
+                    );
+                });
+                return Ok(());
+            }
+            let u_plane_size = (frame.stride_uv as usize) * ((frame.height as usize) / 2);
             player.enqueue_video_i420_strided(
                 frame.data,
                 &uv_data[..u_plane_size],
@@ -339,7 +358,8 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
                 pts_us,
             )?;
         }
-        PixelFormat::Unknown(_) => {
+        // MJPEG は圧縮形式のためデコードなしでは再生できない
+        PixelFormat::Mjpeg | PixelFormat::Unknown(_) => {
             use std::sync::Once;
             static WARN: Once = Once::new();
             WARN.call_once(|| {

@@ -29,10 +29,14 @@ PCM / I420 / NV12 / YUY2 / RGBA / BGRA データを PTS (Presentation Timestamp)
 ## 特徴
 
 - 生の音声/映像入力データをそのまま再生できる
+- CVPixelBuffer を直接受け取るゼロコピー対応 (macOS)
 - 音声フォーマットは PCM (S16 / F32) に対応
 - 映像フォーマットは I420 (YUV420P) / NV12 / YUY2 / RGBA / BGRA に対応
 - PTS ベース音声をマスタークロックとした映像同期機能
 - GPU レンダリング (SDL3)
+  - macOS: Metal
+  - Windows: Vulkan / Direct3D 12
+  - Linux: Vulkan
 - 統計オーバーレイ表示
 - prebuilt バイナリによる高速ビルド (デフォルト)
 - ソースからのビルドも可能 (`--features source-build`)
@@ -48,6 +52,10 @@ PCM / I420 / NV12 / YUY2 / RGBA / BGRA データを PTS (Presentation Timestamp)
 - Windows Server 2025 x86_64
 - Windows 11 x86_64
 
+## 対応 Rust
+
+- 1.88 以降
+
 ## ビルド
 
 デフォルトでは GitHub Releases から prebuilt バイナリをダウンロードしてビルドします。
@@ -58,10 +66,17 @@ cargo build
 
 ### ソースからビルド
 
-SDL3 をソースからビルドする場合は `source-build` feature を有効にしてください。
+`Cargo.toml` の `[package.metadata.external-dependencies.sdl3]` で指定した SDL3 (現在は 3.4.12) をソースからビルドする場合は `source-build` feature を有効にしてください。
 
 ```bash
 cargo build --features source-build
+```
+
+Linux でソースビルドする場合は次のパッケージが必要です。
+
+```bash
+sudo apt-get install -y libclang-dev libasound2-dev libpulse-dev \
+  libx11-dev libxext-dev libxfixes-dev libxrandr-dev libxi-dev
 ```
 
 ## 機能
@@ -178,7 +193,14 @@ let player = AudioPlayer::new();
 // PCM データをキューに追加
 player.enqueue_audio(&pcm_data, 0, 48000, 2, AudioFormat::F32)?;
 player.play()?;
+
+// 再生中に追加した分は process() で SDL へ流す
+player.enqueue_audio(&more_pcm, pts_us, 48000, 2, AudioFormat::F32)?;
+player.process()?;
 ```
+
+`pause()` 後に `stop()` せず再 enqueue すると `NotPlaying` になります。
+キューを捨ててやり直す場合は `stop()` のあと enqueue → `play()` してください。
 
 ## API リファレンス
 
@@ -193,11 +215,15 @@ let player = VideoPlayer::new(width, height, title)?;
 | メソッド | 説明 |
 | --- | --- |
 | `enqueue_video_i420(y, u, v, width, height, pts_us)` | I420 フレームをキューに追加 |
+| `enqueue_video_i420_strided(y, u, v, width, height, y_pitch, uv_pitch, pts_us)` | stride 付き I420 フレームをキューに追加 |
 | `enqueue_video_nv12(y, uv, width, height, pts_us)` | NV12 フレームをキューに追加 |
+| `enqueue_video_nv12_strided(y, uv, width, height, y_pitch, uv_pitch, pts_us)` | stride 付き NV12 フレームをキューに追加 |
 | `enqueue_video_yuy2(data, width, height, pts_us)` | YUY2 フレームをキューに追加 |
+| `enqueue_video_yuy2_strided(data, width, height, pitch, pts_us)` | stride 付き YUY2 フレームをキューに追加 |
 | `enqueue_video_rgba(data, width, height, pts_us)` | RGBA フレームをキューに追加 |
 | `enqueue_video_bgra(data, width, height, pts_us)` | BGRA フレームをキューに追加 |
-| `enqueue_video_bgra_owned(data, width, height, pts_us)` | BGRA フレームをキューに追加 (ゼロコピー) |
+| `enqueue_video_bgra_owned(data, width, height, pts_us)` | BGRA フレームをキューに追加 (所有権移動によるゼロコピー) |
+| `enqueue_video_pixel_buffer(ptr, format, width, height, y_pitch, uv_pitch, pts_us)` | CVPixelBuffer をキューに追加 (macOS ゼロコピー、`unsafe`。対応は I420 / NV12 のみ。奇数寸法は拒否) |
 | `enqueue_audio(data, pts_us, sample_rate, channels, format)` | 音声データをキューに追加 |
 | `play()` | 再生開始 |
 | `pause()` | 一時停止 |
@@ -235,15 +261,19 @@ let player = AudioPlayer::new();
 
 | メソッド | 説明 |
 | --- | --- |
-| `enqueue_audio(data, pts_us, sample_rate, channels, format)` | 音声データをキューに追加 |
+| `enqueue_audio(data, pts_us, sample_rate, channels, format)` | 音声データをキューに追加 (pause 後は `NotPlaying`) |
 | `play()` | 再生開始 |
 | `pause()` | 一時停止 |
 | `stop()` | 停止してキューをクリア |
+| `process()` | アプリキューを SDL ストリームへフラッシュ (再生中のみ。連続 enqueue 時に呼ぶ) |
+| `audio_clock_us()` | 音声再生位置 (マイクロ秒) |
 | `stats()` | 統計情報を取得 |
 
 | プロパティ | 説明 |
 | --- | --- |
 | `is_playing()` | 再生中か |
+| `is_started()` | 音声再生が開始されたか |
+| `audio_queue_ms()` | 音声キューのバッファ量 (ミリ秒) |
 | `volume()` | 音量 (0.0 - 1.0) |
 | `set_volume(volume)` | 音量を設定 |
 
@@ -281,25 +311,30 @@ fn main() -> raw_player::Result<()> {
 
 カメラ映像とマイク音声をキャプチャして AV 同期再生するサンプル。
 `shiguredo_video_device` と `shiguredo_audio_device` を使用する。
+ローカル開発では `source-build` を付けるのが現実的です。
+
+macOS ではカメラが CVPixelBuffer を返せる場合、`enqueue_video_pixel_buffer` によるゼロコピー再生になります。
+対応フォーマットは I420 / NV12 のみで、幅・高さは偶数である必要があります。
+MJPEG は圧縮形式のため、本ライブラリではそのまま再生できません。
 
 ```bash
 # デバイス一覧を表示
-cargo run --example player -- --list-devices
+cargo run --example player --features source-build -- --list-devices
 
-# デフォルト設定で再生 (720p, 30fps)
-cargo run --example player
+# デフォルト設定で再生 (720p, 30 fps)
+cargo run --example player --features source-build
 
 # 解像度とフレームレートを指定
-cargo run --example player -- --resolution 1080p --fps 60
+cargo run --example player --features source-build -- --resolution 1080p --fps 60
 
 # 任意の解像度を指定
-cargo run --example player -- --resolution 1920x1080
+cargo run --example player --features source-build -- --resolution 1920x1080
 
 # デバイスを指定して再生
-cargo run --example player -- --video-input-device <id> --audio-input-device <id>
+cargo run --example player --features source-build -- --video-input-device <id> --audio-input-device <id>
 
 # 再生時間を指定
-cargo run --example player -- --duration 30
+cargo run --example player --features source-build -- --duration 30
 ```
 
 操作:
@@ -315,7 +350,7 @@ Zlib license
 
 ```text
 Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
-  
+
 This software is provided 'as-is', without any express or implied
 warranty.  In no event will the authors be held liable for any damages
 arising from the use of this software.
@@ -323,11 +358,11 @@ arising from the use of this software.
 Permission is granted to anyone to use this software for any purpose,
 including commercial applications, and to alter it and redistribute it
 freely, subject to the following restrictions:
-  
+
 1. The origin of this software must not be misrepresented; you must not
    claim that you wrote the original software. If you use this software
    in a product, an acknowledgment in the product documentation would be
-   appreciated but is not required. 
+   appreciated but is not required.
 2. Altered source versions must be plainly marked as such, and must not be
    misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
