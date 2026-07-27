@@ -15,7 +15,7 @@
   - @voluntas
 - [UPDATE] shiguredo_cmake を 4.4 に、shiguredo_toml を 2026.2 にアップデートする
   - @voluntas
-- [UPDATE] 開発用依存の shiguredo_audio_device / shiguredo_video_device を 2026.2.0-canary にアップデートする
+- [UPDATE] 開発用依存の shiguredo_audio_device / shiguredo_video_device を 2026.2 にアップデートする
   - @voluntas
 - [FIX] video_player.rs の手動ゼロ除算チェックを checked_div に置き換える
   - @voluntas
