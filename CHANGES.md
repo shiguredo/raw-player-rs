@@ -11,6 +11,11 @@
 
 ## develop
 
+
+## 2026.2.0
+
+**リリース日**: 2026-07-27
+
 - [UPDATE] SDL 3.4.12 にアップデートする
   - @voluntas
 - [UPDATE] shiguredo_cmake を 4.4 に、shiguredo_toml を 2026.2 にアップデートする
