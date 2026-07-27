@@ -17,8 +17,7 @@ hooks = [
   # 行末の空白を取り除く
   { id = "trailing-whitespace" },
   # ファイル末尾を改行 1 つで終わらせる
-  # 空ファイルに対して rustfmt と挙動が衝突するため pbt/src/lib.rs は除外する
-  { id = "end-of-file-fixer", exclude = "^pbt/src/lib\\.rs$" },
+  { id = "end-of-file-fixer" },
   # ファイル先頭の UTF-8 BOM を取り除く
   { id = "fix-byte-order-marker" },
   # TOML の構文エラーを検出する
@@ -76,7 +75,7 @@ types = ["rust"]
 pass_filenames = false
 priority = 0
 
-# --all-targets でテスト・example・ベンチも lint し、-D warnings で警告をエラーに昇格する
+# --workspace --all-targets でメンバ・テスト・example・ベンチも lint し、-D warnings で警告をエラーに昇格する
 # SDL3 ソースビルド経路を含むため source-build feature を有効にする
 [[repos.hooks]]
 id = "cargo-clippy"
@@ -88,7 +87,7 @@ pass_filenames = false
 priority = 10
 
 # cargo test: コミットを遅くしないため pre-push でだけ実行する
-# CI と同様に source-build feature を有効にする
+# SDL3 ソースビルド経路を含むため source-build feature を有効にする
 [[repos.hooks]]
 id = "cargo-test"
 name = "cargo test"

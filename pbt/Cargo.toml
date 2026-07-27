@@ -5,5 +5,7 @@ edition = "2024"
 publish = false
 
 [dev-dependencies]
-proptest = "1"
+# Property-Based Testing
+proptest = "1.11"
+# 被テスト対象
 raw_player = { path = ".." }
