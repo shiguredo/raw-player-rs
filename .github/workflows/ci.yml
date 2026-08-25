@@ -24,8 +24,8 @@ jobs:
         include:
           - os: ubuntu-24.04
           - os: ubuntu-24.04-arm
-          - os: ubuntu-22.04
-          - os: ubuntu-22.04-arm
+          - os: ubuntu-26.04
+          - os: ubuntu-26.04-arm
           - os: macos-26
           - os: macos-15
           - os: windows-2025

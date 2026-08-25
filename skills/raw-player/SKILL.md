@@ -233,7 +233,7 @@ cargo run --example player --features source-build -- --duration 30
 - `AudioPlayer` 単独利用時は `raw_player::init()` を忘れない。連続再生では `process()` も必要
 - `AudioPlayer` は `pause()` 後の enqueue が `NotPlaying`。`stop()` でリセットするか `play()` で再開する
 - ソースビルドは Linux で apt パッケージが必要。CI の `.github/workflows/ci.yml` を参照
-- 対応プラットフォーム: macOS 26/15 (arm64), Ubuntu 24.04/22.04 (x86_64/arm64), Windows Server 2025 / Windows 11 (x86_64)
+- 対応プラットフォーム: macOS 26/15 (arm64), Ubuntu 26.04/24.04 (x86_64/arm64), Windows Server 2025 / Windows 11 (x86_64)
 - 対応 Rust: 1.88 以降
 
 ## テスト構成

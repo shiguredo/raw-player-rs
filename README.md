@@ -45,10 +45,10 @@ PCM / I420 / NV12 / YUY2 / RGBA / BGRA データを PTS (Presentation Timestamp)
 
 - macOS 26 arm64
 - macOS 15 arm64
+- Ubuntu 26.04 x86_64
+- Ubuntu 26.04 arm64
 - Ubuntu 24.04 x86_64
 - Ubuntu 24.04 arm64
-- Ubuntu 22.04 x86_64
-- Ubuntu 22.04 arm64
 - Windows Server 2025 x86_64
 - Windows 11 x86_64
 

@@ -11,7 +11,11 @@
 
 ## develop
 
+- [CHANGE] Ubuntu 22.04 のサポートを終了する
+  - @voluntas
 - [CHANGE] MSRV (rust-version) を 1.93 に上げる
+  - @voluntas
+- [ADD] Ubuntu 26.04 のサポートを追加する
   - @voluntas
 
 ## 2026.2.0
