@@ -25,13 +25,13 @@ members = ["pbt"]
 
 [dev-dependencies]
 # examples/player でマイク入力に使う
-shiguredo_audio_device = "2026.2"
+shiguredo_audio_device = "2026.3"
 # examples/player でカメラ入力に使う
-shiguredo_video_device = "2026.2"
+shiguredo_video_device = "2026.3"
 
 [build-dependencies]
 # SDL3 ヘッダから Rust FFI バインディングを生成する
-bindgen = "0.72"
+bindgen = "0.73"
 # SDL3 を CMake でビルドする
 shiguredo_cmake = "4.4"
 # package.metadata.external-dependencies を読む
