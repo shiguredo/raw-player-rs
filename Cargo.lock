@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "raw_player"
-version = "2026.2.0"
+version = "2026.3.0-canary.0"
 dependencies = [
  "bindgen 0.73.2",
  "shiguredo_audio_device",
