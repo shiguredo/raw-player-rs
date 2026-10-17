@@ -125,6 +125,8 @@ pub const SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE: i32 = 8;
 // 初期化フラグ
 pub const SDL_INIT_VIDEO: u32 = 32;
 pub const SDL_INIT_AUDIO: u32 = 16;
+// シグナルハンドラを無効化するヒント
+pub const SDL_HINT_NO_SIGNAL_HANDLERS: &[u8; 23] = b"SDL_NO_SIGNAL_HANDLERS\0";
 // 音声フォーマット
 pub const SDL_AudioFormat_SDL_AUDIO_S16: SDL_AudioFormat = 32784;
 pub const SDL_AudioFormat_SDL_AUDIO_F32: SDL_AudioFormat = 33056;
@@ -142,6 +144,10 @@ pub const SDL_RendererLogicalPresentation_SDL_LOGICAL_PRESENTATION_LETTERBOX: SD
 pub fn SDL_Init(_flags: SDL_InitFlags) -> bool { false }
 pub fn SDL_Quit() {}
 pub fn SDL_GetError() -> *const ::std::os::raw::c_char { ::std::ptr::null() }
+pub fn SDL_SetHint(
+    _name: *const ::std::os::raw::c_char,
+    _value: *const ::std::os::raw::c_char,
+) -> bool { false }
 pub fn SDL_CreateWindow(
     _title: *const ::std::os::raw::c_char,
     _w: ::std::os::raw::c_int,
@@ -398,6 +404,10 @@ fn download_prebuilt(out_dir: &Path, output_bindings_path: &Path) -> PathBuf {
     .unwrap_or_else(|e| panic!("failed to copy {lib_filename}: {e}"));
 
     // bindings.rs をコピー
+    //
+    // bindings.rs はリリース時に source-build で生成したものを配布している。
+    // bindgen の allowlist を変更した直後は、新しい prebuilt が生成されるまで
+    // 既定 (prebuilt) ビルドが通らないため、開発と CI では --features source-build を使う。
     std::fs::copy(prebuilt_dir.join("bindings.rs"), output_bindings_path)
         .expect("failed to copy bindings.rs");
 
@@ -451,6 +461,9 @@ fn build_from_source(out_dir: &Path, output_bindings_path: &Path, url: &str, tag
         .allowlist_function("SDL_Init")
         .allowlist_function("SDL_Quit")
         .allowlist_function("SDL_GetError")
+        // ヒント (SDL のシグナルハンドラ制御に使用する)
+        .allowlist_function("SDL_SetHint")
+        .allowlist_function("SDL_GetHint")
         // ウィンドウ
         .allowlist_function("SDL_CreateWindow")
         .allowlist_function("SDL_DestroyWindow")
@@ -510,6 +523,7 @@ fn build_from_source(out_dir: &Path, output_bindings_path: &Path, url: &str, tag
         // 定数
         .allowlist_var("SDL_INIT_VIDEO")
         .allowlist_var("SDL_INIT_AUDIO")
+        .allowlist_var("SDL_HINT_NO_SIGNAL_HANDLERS")
         .allowlist_var("SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK")
         .allowlist_var("SDL_AUDIO_F32")
         .allowlist_var("SDL_AUDIO_S16")
