@@ -3,11 +3,13 @@
 //! play / pause / stop の成功経路が破綻しないことを確認する。
 //! SDL 失敗時の原子性はモック禁止のためここでは証明しない。
 
-mod common;
+#[path = "helpers/sdl.rs"]
+mod helpers;
 
-use raw_player::{AudioFormat, AudioPlayer};
+use raw_player::audio_format::AudioFormat;
+use raw_player::audio_player::AudioPlayer;
 
-use common::acquire_sdl;
+use helpers::acquire_sdl;
 
 fn silence_s16(sample_rate: i32, channels: i32, duration_ms: usize) -> Vec<u8> {
     let frames = sample_rate as usize * duration_ms / 1000;

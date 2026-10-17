@@ -54,7 +54,7 @@ PCM / I420 / NV12 / YUY2 / RGBA / BGRA データを PTS (Presentation Timestamp)
 
 ## 対応 Rust
 
-- 1.88 以降
+- 1.95 以降
 
 ## ビルド
 
@@ -93,9 +93,9 @@ sudo apt-get install -y libclang-dev libasound2-dev libpulse-dev \
 ### I420 (YUV420P) 再生
 
 ```rust
-use raw_player::VideoPlayer;
+use raw_player::video_player::VideoPlayer;
 
-fn main() -> raw_player::Result<()> {
+fn main() -> raw_player::error::Result<()> {
     let player = VideoPlayer::new(1920, 1080, "I420 Player")?;
 
     // Y, U, V プレーンを用意
@@ -157,7 +157,8 @@ player.enqueue_video_bgra(&rgba_data, 1920, 1080, 0)?;
 ### PTS ベースの AV 同期再生
 
 ```rust
-use raw_player::{VideoPlayer, AudioFormat};
+use raw_player::audio_format::AudioFormat;
+use raw_player::video_player::VideoPlayer;
 
 let player = VideoPlayer::new(1920, 1080, "AV Sync Player")?;
 
@@ -184,7 +185,8 @@ player.close();
 ### 音声のみ再生
 
 ```rust
-use raw_player::{AudioPlayer, AudioFormat};
+use raw_player::audio_format::AudioFormat;
+use raw_player::audio_player::AudioPlayer;
 
 raw_player::init()?;
 
@@ -300,9 +302,12 @@ let player = AudioPlayer::new();
 SDL のイベントを処理しないアプリは `init()` ではなく `init_without_signal_handlers()` を使う (「シグナルハンドラ」を参照)。
 
 ```rust
-use raw_player::{init, quit, poll_event, Event, Window, Renderer};
+use raw_player::event::{Event, poll_event};
+use raw_player::renderer::Renderer;
+use raw_player::window::Window;
+use raw_player::{init, quit};
 
-fn main() -> raw_player::Result<()> {
+fn main() -> raw_player::error::Result<()> {
     init()?;
 
     let window = Window::new("Example", 640, 480)?;

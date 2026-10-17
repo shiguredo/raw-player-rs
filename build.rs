@@ -36,7 +36,7 @@ fn main() {
         // Docs.rs 向け: curl / ネイティブビルド不可のため、src が参照する
         // bindings 記号・署名を揃えたダミーを出力し `cargo check` も通す。
         //
-        // See also: https://docs.rs/about/builds
+        // 参考: https://docs.rs/about/builds
         std::fs::write(
             output_bindings_path,
             r#####"// Docs.rs 用ダミー bindings。src が参照する記号・署名を揃え cargo check を通す。
@@ -307,7 +307,7 @@ pub fn SDL_PollEvent(_event: *mut SDL_Event) -> bool { false }
         println!("cargo::rustc-link-lib=static=SDL3");
     }
 
-    // macOS frameworks
+    // macOS のフレームワーク
     #[cfg(target_os = "macos")]
     {
         println!("cargo::rustc-link-lib=framework=Cocoa");
@@ -328,7 +328,7 @@ pub fn SDL_PollEvent(_event: *mut SDL_Event) -> bool { false }
         println!("cargo::rustc-link-lib=iconv");
     }
 
-    // Windows libraries
+    // Windows のライブラリ
     #[cfg(target_os = "windows")]
     {
         for lib in [
@@ -339,7 +339,7 @@ pub fn SDL_PollEvent(_event: *mut SDL_Event) -> bool { false }
         }
     }
 
-    // Linux libraries
+    // Linux のライブラリ
     #[cfg(target_os = "linux")]
     {
         println!("cargo::rustc-link-lib=pthread");
@@ -455,7 +455,12 @@ fn build_from_source(out_dir: &Path, output_bindings_path: &Path, url: &str, tag
 
     // バインディングを生成する
     bindgen::Builder::default()
-        .header(include_dir.join("SDL3/SDL.h").to_str().unwrap())
+        .header(
+            include_dir
+                .join("SDL3/SDL.h")
+                .to_str()
+                .expect("SDL include directory path must be valid UTF-8"),
+        )
         .clang_arg(format!("-I{}", include_dir.display()))
         // 初期化と終了
         .allowlist_function("SDL_Init")

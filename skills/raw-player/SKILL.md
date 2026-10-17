@@ -101,7 +101,7 @@ player.enqueue_video_bgra(&data, 1920, 1080, pts_us)?;
 - `y_pitch` / `uv_pitch` は `VideoFrame` に保存されるが、描画では CVPixelBuffer の実 stride を使う
 
 ```rust
-use raw_player::VideoFormat;
+use raw_player::video_format::VideoFormat;
 
 unsafe {
     player.enqueue_video_pixel_buffer(
@@ -123,7 +123,8 @@ unsafe {
 音声 PTS がマスタークロックになる。音声と映像の両方を同じ `VideoPlayer` に enqueue し、`poll_events()` を回すだけで自動同期される。
 
 ```rust
-use raw_player::{VideoPlayer, AudioFormat};
+use raw_player::audio_format::AudioFormat;
+use raw_player::video_player::VideoPlayer;
 
 let player = VideoPlayer::new(1920, 1080, "AV Sync Player")?;
 
@@ -146,7 +147,8 @@ player.close();
 ## 音声のみ再生
 
 ```rust
-use raw_player::{AudioPlayer, AudioFormat};
+use raw_player::audio_format::AudioFormat;
+use raw_player::audio_player::AudioPlayer;
 
 raw_player::init()?;
 
@@ -180,9 +182,12 @@ raw_player::init_without_signal_handlers()?;
 ウィンドウ、レンダラー、テクスチャを直接操作する場合の典型的な流れ。
 
 ```rust
-use raw_player::{init, quit, poll_event, Event, Window, Renderer};
+use raw_player::event::{Event, poll_event};
+use raw_player::renderer::Renderer;
+use raw_player::window::Window;
+use raw_player::{init, quit};
 
-fn main() -> raw_player::Result<()> {
+fn main() -> raw_player::error::Result<()> {
     init()?;
 
     let window = Window::new("Example", 640, 480)?;
@@ -247,11 +252,11 @@ cargo run --example player --features source-build -- --duration 30
 - `AudioPlayer` は `pause()` 後の enqueue が `NotPlaying`。`stop()` でリセットするか `play()` で再開する
 - ソースビルドは Linux で apt パッケージが必要。CI の `.github/workflows/ci.yml` を参照
 - 対応プラットフォーム: macOS 26/15 (arm64), Ubuntu 26.04/24.04 (x86_64/arm64), Windows Server 2025 / Windows 11 (x86_64)
-- 対応 Rust: 1.88 以降
+- 対応 Rust: 1.95 以降
 
 ## テスト構成
 
 - 単体テスト: `tests/test_<module>.rs` または `src/<module>.rs` の `#[cfg(test)]`
-- PBT (Property-Based Testing): `pbt/tests/prop_<module>.rs` で proptest を使う
+- PBT (Property-Based Testing): `pbt/tests/prop_<module>.rs` で noprop を使う
 - Fuzzing: `cargo-fuzz`、`make fuzzing` / `make fuzzing-parallel`
 - カバレッジ: `make cover` (`cargo llvm-cov`、`--features source-build`)

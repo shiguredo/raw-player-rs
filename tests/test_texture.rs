@@ -3,11 +3,17 @@
 //! `Texture::new` の寸法契約と、`update_*` の長さ・pitch・format・奇偶検証を
 //! 1 つの `#[test]` にまとめ、明示 drop 後に `quit()` する。
 
-mod common;
+#[path = "helpers/sdl.rs"]
+mod helpers;
 
-use raw_player::{Error, Renderer, Texture, VideoFormat, Window, quit};
+use raw_player::error::Error;
+use raw_player::quit;
+use raw_player::renderer::Renderer;
+use raw_player::texture::Texture;
+use raw_player::video_format::VideoFormat;
+use raw_player::window::Window;
 
-use common::acquire_sdl;
+use helpers::acquire_sdl;
 
 /// `width * 4` の i32 溢れを防ぐ上限（`texture.rs` と同値）。
 const MAX_DIMENSION: i32 = i32::MAX / 4;
@@ -70,19 +76,21 @@ fn texture_new_and_update_contracts() {
             &format!("dimensions too large: 16x{too_wide} (max {MAX_DIMENSION})"),
         );
 
-        let rgba = Texture::new(&renderer, VideoFormat::Rgba, 16, 16).expect("RGBA 16x16");
+        let rgba = Texture::new(&renderer, VideoFormat::Rgba, 16, 16)
+            .expect("RGBA 16x16 の Texture を作成できるはず");
         assert_eq!(rgba.width(), 16);
         assert_eq!(rgba.height(), 16);
         assert_eq!(rgba.format(), VideoFormat::Rgba);
         drop(rgba);
 
-        let i420_ok = Texture::new(&renderer, VideoFormat::I420, 16, 16).expect("I420 16x16");
+        let i420_ok = Texture::new(&renderer, VideoFormat::I420, 16, 16)
+            .expect("I420 16x16 の Texture を作成できるはず");
         assert_eq!(i420_ok.width(), 16);
         assert_eq!(i420_ok.height(), 16);
         assert_eq!(i420_ok.format(), VideoFormat::I420);
         drop(i420_ok);
 
-        let yuv = Texture::new_yuv(&renderer, 16, 16).expect("new_yuv 16x16");
+        let yuv = Texture::new_yuv(&renderer, 16, 16).expect("new_yuv が 16x16 で成功するはず");
         assert_eq!(yuv.width(), 16);
         assert_eq!(yuv.height(), 16);
         assert_eq!(yuv.format(), VideoFormat::I420);
@@ -90,7 +98,8 @@ fn texture_new_and_update_contracts() {
 
         // --- update_yuv: 長さ不足 / 最小長 / 余白 ---
         {
-            let mut tex = Texture::new(&renderer, VideoFormat::I420, 16, 16).expect("Texture::new");
+            let mut tex = Texture::new(&renderer, VideoFormat::I420, 16, 16)
+                .expect("Texture::new が成功するはず");
             let y_pitch = 16;
             let uv_pitch = 8;
             let y_min = (y_pitch * 16) as usize;
@@ -116,9 +125,10 @@ fn texture_new_and_update_contracts() {
             drop(tex);
         }
 
-        // --- update_nv12 ---
+        // --- update_nv12 の検証 ---
         {
-            let mut tex = Texture::new(&renderer, VideoFormat::NV12, 16, 16).expect("Texture::new");
+            let mut tex = Texture::new(&renderer, VideoFormat::NV12, 16, 16)
+                .expect("Texture::new が成功するはず");
             let y_pitch = 16;
             let uv_pitch = 16;
             let y_min = (y_pitch * 16) as usize;
@@ -142,9 +152,10 @@ fn texture_new_and_update_contracts() {
             drop(tex);
         }
 
-        // --- update_packed (YUY2) ---
+        // --- update_packed (YUY2) の検証 ---
         {
-            let mut tex = Texture::new(&renderer, VideoFormat::YUY2, 16, 8).expect("Texture::new");
+            let mut tex = Texture::new(&renderer, VideoFormat::YUY2, 16, 8)
+                .expect("Texture::new が成功するはず");
             let pitch = 32; // width * 2
             let min_len = (pitch * 8) as usize;
 
@@ -165,7 +176,8 @@ fn texture_new_and_update_contracts() {
 
         // --- 負 pitch / 過小 pitch ---
         {
-            let mut i420 = Texture::new(&renderer, VideoFormat::I420, 16, 16).expect("I420");
+            let mut i420 = Texture::new(&renderer, VideoFormat::I420, 16, 16)
+                .expect("I420 の Texture を作成できるはず");
             let y = vec![0u8; 16 * 16];
             let u = vec![128u8; 8 * 8];
             let v = vec![128u8; 8 * 8];
@@ -179,7 +191,8 @@ fn texture_new_and_update_contracts() {
             );
             drop(i420);
 
-            let mut nv12 = Texture::new(&renderer, VideoFormat::NV12, 16, 16).expect("NV12");
+            let mut nv12 = Texture::new(&renderer, VideoFormat::NV12, 16, 16)
+                .expect("NV12 の Texture を作成できるはず");
             let uv = vec![0u8; 16 * 8];
             assert_invalid_argument(
                 nv12.update_nv12(&y, 16, &uv, 15)
@@ -187,7 +200,8 @@ fn texture_new_and_update_contracts() {
             );
             drop(nv12);
 
-            let mut yuy2 = Texture::new(&renderer, VideoFormat::YUY2, 16, 8).expect("YUY2");
+            let mut yuy2 = Texture::new(&renderer, VideoFormat::YUY2, 16, 8)
+                .expect("YUY2 の Texture を作成できるはず");
             let packed = vec![0u8; 32 * 8];
             assert_invalid_argument(
                 yuy2.update_packed(&packed, 31)
@@ -198,7 +212,8 @@ fn texture_new_and_update_contracts() {
 
         // --- フォーマット不一致 ---
         {
-            let mut i420 = Texture::new(&renderer, VideoFormat::I420, 16, 16).expect("I420");
+            let mut i420 = Texture::new(&renderer, VideoFormat::I420, 16, 16)
+                .expect("I420 の Texture を作成できるはず");
             let y = vec![0u8; 16 * 16];
             let uv = vec![0u8; 16 * 8];
             let packed = vec![0u8; 32 * 16];
@@ -214,7 +229,8 @@ fn texture_new_and_update_contracts() {
             );
             drop(i420);
 
-            let mut nv12 = Texture::new(&renderer, VideoFormat::NV12, 16, 16).expect("NV12");
+            let mut nv12 = Texture::new(&renderer, VideoFormat::NV12, 16, 16)
+                .expect("NV12 の Texture を作成できるはず");
             assert_invalid_argument(
                 nv12.update_yuv(&y, 16, &u, 8, &v, 8)
                     .expect_err("NV12 へ update_yuv は Err"),
@@ -225,7 +241,8 @@ fn texture_new_and_update_contracts() {
             );
             drop(nv12);
 
-            let mut yuy2 = Texture::new(&renderer, VideoFormat::YUY2, 16, 8).expect("YUY2");
+            let mut yuy2 = Texture::new(&renderer, VideoFormat::YUY2, 16, 8)
+                .expect("YUY2 の Texture を作成できるはず");
             assert_invalid_argument(
                 yuy2.update_yuv(&y, 16, &u, 8, &v, 8)
                     .expect_err("YUY2 へ update_yuv は Err"),
@@ -258,7 +275,8 @@ fn texture_new_and_update_contracts() {
 
         // --- RGBA packed 最小長 ---
         {
-            let mut tex = Texture::new(&renderer, VideoFormat::Rgba, 8, 4).expect("RGBA");
+            let mut tex = Texture::new(&renderer, VideoFormat::Rgba, 8, 4)
+                .expect("RGBA の Texture を作成できるはず");
             let pitch = 32; // width * 4
             let min_len = (pitch * 4) as usize;
             assert_invalid_argument(

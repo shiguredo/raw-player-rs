@@ -1,4 +1,6 @@
-use crate::ffi;
+//! 映像ピクセルフォーマットの定義。
+
+use crate::sys;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoFormat {
@@ -10,19 +12,19 @@ pub enum VideoFormat {
 }
 
 impl VideoFormat {
-    // bindgen は Windows (MSVC) で enum 定数を i32、Linux (GCC) で u32 として
-    // 生成するため、as u32 で統一する
-    #[allow(clippy::unnecessary_cast)]
+    // bindgen は環境によって enum 定数の基底型を i32 / u32 に分けるため、
+    // as u32 ではなくビット列を経由して u32 に揃える。
     pub(crate) fn to_sdl_pixel_format(self) -> u32 {
-        match self {
-            Self::I420 => ffi::SDL_PixelFormat_SDL_PIXELFORMAT_IYUV as u32,
-            Self::NV12 => ffi::SDL_PixelFormat_SDL_PIXELFORMAT_NV12 as u32,
-            Self::YUY2 => ffi::SDL_PixelFormat_SDL_PIXELFORMAT_YUY2 as u32,
-            Self::Rgba => ffi::SDL_PixelFormat_SDL_PIXELFORMAT_RGBA8888 as u32,
+        let format = match self {
+            Self::I420 => sys::SDL_PixelFormat_SDL_PIXELFORMAT_IYUV,
+            Self::NV12 => sys::SDL_PixelFormat_SDL_PIXELFORMAT_NV12,
+            Self::YUY2 => sys::SDL_PixelFormat_SDL_PIXELFORMAT_YUY2,
+            Self::Rgba => sys::SDL_PixelFormat_SDL_PIXELFORMAT_RGBA8888,
             // BGRA はメモリ上のバイト順 (B,G,R,A)。リトルエンディアンでは
             // 32bit 値として読むと 0xAARRGGBB = ARGB となるため ARGB8888 を使う。
-            Self::Bgra => ffi::SDL_PixelFormat_SDL_PIXELFORMAT_ARGB8888 as u32,
-        }
+            Self::Bgra => sys::SDL_PixelFormat_SDL_PIXELFORMAT_ARGB8888,
+        };
+        u32::from_ne_bytes(format.to_ne_bytes())
     }
 
     pub fn name(self) -> &'static str {

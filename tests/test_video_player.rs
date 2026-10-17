@@ -2,14 +2,18 @@
 //!
 //! 映像のみ経路の pause / play で壁時計 skew が同期ドロップを起こさないことを検証する。
 
-mod common;
+#[path = "helpers/sdl.rs"]
+mod helpers;
 
 use std::thread;
 use std::time::Duration;
 
-use raw_player::{AudioFormat, Error, VideoFormat, VideoPlayer, validate_pixel_buffer_enqueue};
+use raw_player::audio_format::AudioFormat;
+use raw_player::error::Error;
+use raw_player::video_format::VideoFormat;
+use raw_player::video_player::{VideoPlayer, validate_pixel_buffer_enqueue};
 
-use common::{SdlTestGuard, acquire_sdl};
+use helpers::{SdlTestGuard, acquire_sdl};
 
 /// 指定 PTS で黒 I420 フレームを enqueue する。
 fn enqueue_black_i420(player: &VideoPlayer, width: i32, height: i32, pts_us: i64) {

@@ -35,11 +35,11 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - run: rustup update stable
+      - run: rustup toolchain install 1.95 --profile minimal --component rustfmt --component clippy
       - uses: shiguredo/github-actions/.github/actions/rust-cache@main
         with:
           os: ${{ matrix.os }}
-          toolchain: stable
+          toolchain: "1.95"
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -64,7 +64,7 @@ jobs:
       DOCS_RS: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: rustup update stable
+      - run: rustup toolchain install 1.95 --profile minimal
       - run: cargo check
       - run: cargo doc --no-deps
 
