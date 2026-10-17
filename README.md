@@ -202,6 +202,23 @@ player.process()?;
 `pause()` 後に `stop()` せず再 enqueue すると `NotPlaying` になります。
 キューを捨ててやり直す場合は `stop()` のあと enqueue → `play()` してください。
 
+### シグナルハンドラ
+
+`init()` は SDL3 を初期化します。SDL3 はこのとき、SIGINT / SIGTERM のハンドラが既定のままなら、それらを SDL の終了イベント (`Event::Quit`) に変換するシグナルハンドラを登録します。アプリ側で独自のシグナルハンドラを登録している場合、SDL3 はそれを上書きしません。
+
+SDL のイベントを処理しないアプリでは、この終了イベントを処理するコードがないため、SIGTERM を受けても終了できません。`timeout` コマンド、systemd、コンテナの停止が効かなくなります。
+
+そのようなアプリは `init_without_signal_handlers()` を使うか、SDL の初期化より前に環境変数 `SDL_NO_SIGNAL_HANDLERS=1` を設定してください。
+
+```rust
+// SDL のシグナルハンドラを登録せずに初期化する
+raw_player::init_without_signal_handlers()?;
+```
+
+`VideoPlayer::new()` は内部で `init()` を呼ぶため、`init_without_signal_handlers()` を先に呼んでおけば二重に初期化されることはありません。
+
+既に `init()` で初期化済みの場合、`init_without_signal_handlers()` は何もせず `Ok(())` を返します。
+
 ## API リファレンス
 
 ### VideoPlayer
@@ -280,6 +297,7 @@ let player = AudioPlayer::new();
 ### 低レベル API
 
 ウィンドウ、レンダラー、テクスチャを直接操作する場合に使用。
+SDL のイベントを処理しないアプリは `init()` ではなく `init_without_signal_handlers()` を使う (「シグナルハンドラ」を参照)。
 
 ```rust
 use raw_player::{init, quit, poll_event, Event, Window, Renderer};

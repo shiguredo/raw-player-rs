@@ -49,11 +49,47 @@ static SDL_INITIALIZED: Mutex<bool> = Mutex::new(false);
 
 /// SDL3 を初期化する。
 ///
+/// SDL3 は初期化時に、SIGINT / SIGTERM のハンドラが既定 (`SIG_DFL`) のままなら、
+/// それらを SDL の終了イベント (`SDL_EVENT_QUIT`) に変換するシグナルハンドラを登録する。
+/// SDL のイベントを処理しないアプリではこの終了イベントが処理されず、
+/// SIGTERM などで終了できなくなる。そのようなアプリは [`init_without_signal_handlers`] を使うこと。
+///
 /// 複数回呼び出しても安全。別スレッドから同時に初回のみ呼び出した場合も、`SDL_Init` が完了するまでブロックされる。
 pub fn init() -> Result<()> {
-    let mut initialized = SDL_INITIALIZED.lock().unwrap();
+    init_impl(false)
+}
+
+/// SDL3 のシグナルハンドラを登録せずに初期化する。
+///
+/// SDL3 は既定で、SIGINT / SIGTERM のハンドラが既定 (`SIG_DFL`) のままなら、
+/// それらを SDL の終了イベント (`SDL_EVENT_QUIT`) に変換するシグナルハンドラを登録する。
+/// SDL のイベントを処理しないアプリではこの終了イベントが処理されず、
+/// `timeout` コマンド、systemd、コンテナの停止が送る SIGTERM で終了できなくなる。
+/// この関数はそのハンドラを登録せずに SDL3 を初期化する。
+///
+/// SDL の初期化より前に環境変数 `SDL_NO_SIGNAL_HANDLERS=1` を設定するのと同等。
+///
+/// 既に [`init`] などで初期化済みの場合は何もせず `Ok(())` を返す。
+pub fn init_without_signal_handlers() -> Result<()> {
+    init_impl(true)
+}
+
+/// SDL3 を初期化する。`without_signal_handlers` が true のときは SDL のシグナルハンドラを無効化する。
+fn init_impl(without_signal_handlers: bool) -> Result<()> {
+    // SDL_Init はプロセス全体の状態を扱うため、初回呼び出しを Mutex で直列化する。
+    let mut initialized = SDL_INITIALIZED
+        .lock()
+        .expect("SDL init state mutex poisoned");
     if *initialized {
         return Ok(());
+    }
+    if without_signal_handlers {
+        // SDL は SDL_Init の中でヒントを参照してシグナルハンドラの登録可否を決めるため、
+        // SDL_Init より前にヒントを設定する必要がある。
+        let name = ffi::SDL_HINT_NO_SIGNAL_HANDLERS.as_ptr().cast();
+        if !unsafe { ffi::SDL_SetHint(name, c"1".as_ptr()) } {
+            return Err(Error::from_sdl());
+        }
     }
     #[allow(clippy::unnecessary_cast)]
     let flags = ffi::SDL_INIT_VIDEO as u32 | ffi::SDL_INIT_AUDIO as u32;
@@ -72,7 +108,9 @@ pub fn init() -> Result<()> {
 /// すべての SDL リソース (VideoPlayer, Window, Renderer 等) を drop した後に呼ぶこと。
 /// リソースが残った状態で呼ぶと、drop 時に解放済みリソースへアクセスしクラッシュする。
 pub unsafe fn quit() {
-    let mut initialized = SDL_INITIALIZED.lock().unwrap();
+    let mut initialized = SDL_INITIALIZED
+        .lock()
+        .expect("SDL init state mutex poisoned");
     if *initialized {
         unsafe { ffi::SDL_Quit() };
         *initialized = false;
