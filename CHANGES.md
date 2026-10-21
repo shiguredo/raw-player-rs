@@ -17,9 +17,13 @@
   - @voluntas
 - [CHANGE] 型・関数の再エクスポートを廃止しモジュールパスでの import に変更する
   - @voluntas
+- [CHANGE] VideoPlayerStats に理由別ドロップ数と復帰回数を追加する
+  - @voluntas
 - [ADD] Ubuntu 26.04 のサポートを追加する
   - @voluntas
 - [ADD] SDL のシグナルハンドラを登録せずに初期化する init_without_signal_handlers() を追加する
+  - @voluntas
+- [FIX] 映像のみ再生で再生時計が PTS からずれたときに描画が止まり続けるのを修正する
   - @voluntas
 
 ### misc

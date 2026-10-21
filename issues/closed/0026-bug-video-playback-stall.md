@@ -1,7 +1,7 @@
 # 映像のみ再生で再生時計が PTS からずれると描画が止まり続ける
 
 - Created: 2026-10-21
-- Completed: {YYYY-MM-DD}
+- Completed: 2026-10-21
 - Branch: feature/fix-video-playback-clock
 - Polished: {YYYY-MM-DD}
 
@@ -86,6 +86,13 @@
 5. 修正前のコードで復帰 2 ケースが描画 1 枚で失敗することを確認してから実装した。修正後
    は `cargo test -p raw_player` が全テスト成功 (test_video_player 11 本、約 11 秒)
 6. `CHANGES.md` の `## develop` に [ADD] と [FIX] を追記する
+
+検証は次のとおり。修正前のコードに戻した状態で、報告の再現手順 (最初のフレーム投入から
+300 ms 待って poll) を実行すると `total_frames_rendered` が 1 のまま止まることを確認した。
+修正後は同じ手順で描画が継続し、`resync_count` が 1 以上になる。`cargo test -p raw_player`
+は全テスト成功 (test_video_player 11 本、約 11 秒)、`cargo fmt --all --check` と
+`cargo clippy --workspace --all-targets --features source-build -- -D warnings` も成功して
+いる。
 
 moq-sub 側のログと表示実績の修正は moqt-rs 側で行う。この issue は raw_player 側の修正に
 限定する。

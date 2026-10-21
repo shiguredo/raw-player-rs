@@ -1,4 +1,7 @@
 //! 映像と音声を PTS ベースで同期再生するプレイヤー。
+//!
+//! 映像のみ再生の再生時計の基準と、時計が到着 PTS からずれて描画が止まったときの
+//! 復帰条件は `render_next_frame` と `resync_to_latest_frame` を参照すること。
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -17,6 +20,13 @@ use crate::window::Window;
 
 /// pitch 計算 (`width * 4`) で i32 オーバーフローしない最大 width。
 const MAX_DIMENSION: i32 = i32::MAX / 4;
+
+/// 映像のみ経路で描画できない状態がこの時間 (ナノ秒) 継続したら最新フレームへ復帰する。
+///
+/// 未来の PTS が正当な先行バッファである場合に復帰が誤発動しないよう、復帰は
+/// 「描画できない状態の継続時間」だけで判定する。そのため 1 秒を超える先行バッファを
+/// 意図的に積む用途では復帰が発動する。この定数はその制約を含めた復帰の方針である。
+const RESYNC_TIMEOUT_NS: u64 = 1_000_000_000;
 
 /// 入力検証: I420 フレームデータのサイズを検証する。
 pub fn validate_i420(y: &[u8], u: &[u8], v: &[u8], width: i32, height: i32) -> Result<()> {
@@ -323,7 +333,19 @@ pub fn validate_pixel_buffer_enqueue(format: VideoFormat, width: i32, height: i3
 pub struct VideoPlayerStats {
     pub video_queue_size: usize,
     pub audio_queue_ms: f64,
+    /// 破棄したフレームの合計数。
+    ///
+    /// `dropped_frames_queue_full` と `dropped_frames_late` と
+    /// `dropped_frames_resync` の合計になる。
     pub dropped_frames: i64,
+    /// 映像キューの上限を超えたため enqueue 時に破棄したフレーム数。
+    pub dropped_frames_queue_full: i64,
+    /// 表示時刻を過ぎていたため描画時に破棄したフレーム数。
+    pub dropped_frames_late: i64,
+    /// 映像のみ経路で最新フレームへ復帰するときに破棄したフレーム数。
+    pub dropped_frames_resync: i64,
+    /// 映像のみ経路で最新フレームへ復帰した回数。
+    pub resync_count: i64,
     pub repeated_frames: i64,
     pub video_pts_us: i64,
     pub audio_pts_us: i64,
@@ -369,6 +391,8 @@ struct VideoPlayerInner {
     video_only_started: bool,
     // 映像のみ経路で pause 開始時刻を保持し、再開時に壁時計へ加算する（None = 補正待ちなし）
     pause_started_ns: Option<u64>,
+    // 映像のみ経路で描画できない状態が始まった時刻 (None = 描画できている)
+    blocked_since_ns: Option<u64>,
 
     // 同期設定
     sync_threshold_us: i64,
@@ -377,6 +401,10 @@ struct VideoPlayerInner {
 
     // 統計
     dropped_frames: i64,
+    dropped_frames_queue_full: i64,
+    dropped_frames_late: i64,
+    dropped_frames_resync: i64,
+    resync_count: i64,
     repeated_frames: i64,
     total_frames_enqueued: i64,
     total_frames_rendered: i64,
@@ -406,6 +434,18 @@ struct VideoPlayerInner {
 
     // 状態
     open: bool,
+}
+
+impl VideoPlayerInner {
+    /// 映像のみ経路で描画できない状態が始まった時刻を、まだ記録していなければ記録する。
+    ///
+    /// 遅延ドロップと早すぎる待ちの両方から呼ぶ。描画できたときと、キューが空の通常の
+    /// 待機では記録しない (後者では描画の機会が来ていないだけであるため)。
+    fn mark_blocked(&mut self, now_ns: u64) {
+        if self.blocked_since_ns.is_none() {
+            self.blocked_since_ns = Some(now_ns);
+        }
+    }
 }
 
 pub struct VideoPlayer {
@@ -449,12 +489,17 @@ impl VideoPlayer {
                 first_video_pts_us: 0,
                 video_only_started: false,
                 pause_started_ns: None,
+                blocked_since_ns: None,
 
                 sync_threshold_us: 40_000,
                 max_video_queue_size: 5,
                 vsync_interval: 1,
 
                 dropped_frames: 0,
+                dropped_frames_queue_full: 0,
+                dropped_frames_late: 0,
+                dropped_frames_resync: 0,
+                resync_count: 0,
                 repeated_frames: 0,
                 total_frames_enqueued: 0,
                 total_frames_rendered: 0,
@@ -759,9 +804,13 @@ impl VideoPlayer {
                 inner.video_start_time_ns += now - pause_started;
             }
         }
+        // pause 中に進んだ時間で復帰が誤発動しないよう、描画できない状態の計測をやり直す。
+        // 実際に再生を開始するときだけリセットする。再生中に呼ばれた play() でリセット
+        // すると、呼び出し側が毎フレーム play() を呼ぶ場合に復帰が永久に発動しない
         if !inner.playing {
             inner.playing = true;
             inner.has_played = true;
+            inner.blocked_since_ns = None;
             if inner.play_start_time_ns == 0 {
                 inner.play_start_time_ns = unsafe { sys::SDL_GetTicksNS() };
                 inner.fps_calc_start_ns = 0;
@@ -784,6 +833,8 @@ impl VideoPlayer {
             .expect("video player state mutex poisoned");
         let was_playing = inner.playing;
         inner.playing = false;
+        // pause 中に経過した時間で復帰が誤発動しないよう、描画できない状態の計測をクリアする
+        inner.blocked_since_ns = None;
         // 映像のみかつ初回描画済みの pause 遷移時だけ開始時刻を記録する（上書きしない）
         if was_playing
             && inner.video_only_started
@@ -813,7 +864,12 @@ impl VideoPlayer {
         inner.video_start_time_ns = 0;
         inner.first_video_pts_us = 0;
         inner.pause_started_ns = None;
+        inner.blocked_since_ns = None;
         inner.dropped_frames = 0;
+        inner.dropped_frames_queue_full = 0;
+        inner.dropped_frames_late = 0;
+        inner.dropped_frames_resync = 0;
+        inner.resync_count = 0;
         inner.repeated_frames = 0;
         inner.total_frames_enqueued = 0;
         inner.total_frames_rendered = 0;
@@ -1037,6 +1093,10 @@ impl VideoPlayer {
             video_queue_size: inner.video_queue.len(),
             audio_queue_ms,
             dropped_frames: inner.dropped_frames,
+            dropped_frames_queue_full: inner.dropped_frames_queue_full,
+            dropped_frames_late: inner.dropped_frames_late,
+            dropped_frames_resync: inner.dropped_frames_resync,
+            resync_count: inner.resync_count,
             repeated_frames: inner.repeated_frames,
             video_pts_us: inner.last_video_pts_us,
             audio_pts_us: audio_clock,
@@ -1094,6 +1154,8 @@ impl VideoPlayer {
         inner.video_start_time_ns = 0;
         inner.first_video_pts_us = 0;
         inner.pause_started_ns = None;
+        // キューを捨てて時計をリセットするため、描画できない状態の計測もクリアする
+        inner.blocked_since_ns = None;
     }
 
     pub fn set_stats_overlay(&self, enabled: bool) {
@@ -1141,6 +1203,7 @@ impl VideoPlayer {
             while inner.video_queue.len() >= inner.max_video_queue_size {
                 inner.video_queue.pop_front();
                 inner.dropped_frames += 1;
+                inner.dropped_frames_queue_full += 1;
             }
         }
 
@@ -1148,6 +1211,11 @@ impl VideoPlayer {
         Ok(())
     }
 
+    /// 再生時計に合わせてキュー先頭のフレームを描画する。
+    ///
+    /// 音声が開始している経路では音声時計を正として使う。映像のみ経路では初回にキュー
+    /// 先頭フレームの PTS を単調時計へ対応付けて再生時計の基準にし、描画できない状態が
+    /// `RESYNC_TIMEOUT_NS` 以上続いた場合は最新フレームへ復帰する。
     fn render_next_frame(
         inner: &mut VideoPlayerInner,
         audio_clock_us: i64,
@@ -1157,15 +1225,34 @@ impl VideoPlayer {
             return Ok(());
         }
 
+        // フレーム未到着の通常の待機。ここでは blocked_since_ns を設定しない
         if inner.video_queue.is_empty() {
             return Ok(());
         }
 
+        // 映像のみ経路の復帰判定。未来の PTS が正当な先行バッファである場合に復帰が
+        // 誤発動しないよう、描画できない状態が RESYNC_TIMEOUT_NS 以上継続したときだけ
+        // 復帰する。音声が開始している経路では音声時計を正とし、再基準化はしない
+        let video_only_now_ns = if audio_started {
+            0
+        } else {
+            unsafe { sys::SDL_GetTicksNS() }
+        };
+        if !audio_started
+            && let Some(blocked_since_ns) = inner.blocked_since_ns
+            && video_only_now_ns.saturating_sub(blocked_since_ns) >= RESYNC_TIMEOUT_NS
+        {
+            return Self::resync_to_latest_frame(inner, video_only_now_ns, audio_clock_us);
+        }
+
         // クロック取得
         let clock_us = if audio_started {
+            // 音声時計が正。ここで時計の再基準化はしない
             audio_clock_us
         } else {
             if !inner.video_only_started {
+                // 映像のみ経路は、最初に描画処理へ入った時点のキュー先頭 PTS を
+                // 単調時計へ対応付けて再生時計の基準にする
                 inner.video_start_time_ns = unsafe { sys::SDL_GetTicksNS() };
                 inner.first_video_pts_us = inner
                     .video_queue
@@ -1196,12 +1283,21 @@ impl VideoPlayer {
                 // フレームが遅すぎる → ドロップ
                 inner.video_queue.pop_front();
                 inner.dropped_frames += 1;
+                inner.dropped_frames_late += 1;
+                // 映像のみ経路では、描画できない状態が始まった時刻を記録する
+                if !audio_started {
+                    inner.mark_blocked(video_only_now_ns);
+                }
                 continue;
             }
 
             if diff > inner.sync_threshold_us {
                 // フレームが早すぎる → リピート
                 inner.repeated_frames += 1;
+                // 映像のみ経路では、描画できない状態が始まった時刻を記録する
+                if !audio_started {
+                    inner.mark_blocked(video_only_now_ns);
+                }
                 break;
             }
 
@@ -1211,10 +1307,48 @@ impl VideoPlayer {
                 .pop_front()
                 .expect("video queue must not be empty before rendering a frame");
             Self::render_frame_internal(inner, &frame, audio_clock_us)?;
+            // 描画できたので、描画できない状態の計測をクリアする
+            inner.blocked_since_ns = None;
             break;
         }
 
         Ok(())
+    }
+
+    /// 映像のみ経路で描画できない状態が続いたときに、最新フレームへ復帰する。
+    ///
+    /// キューの最後の 1 枚以外を破棄し、そのフレームの PTS に再生時計を再基準化して
+    /// その場で描画する。音声が開始している経路では呼ばない (A/V 同期が壊れるため)。
+    fn resync_to_latest_frame(
+        inner: &mut VideoPlayerInner,
+        now_ns: u64,
+        audio_clock_us: i64,
+    ) -> Result<()> {
+        let latest_pts_us = inner
+            .video_queue
+            .back()
+            .expect("video queue must not be empty before resyncing")
+            .pts_us;
+
+        // 時計との差が固定されたままになった古いフレームは使い道がないため捨てる
+        let discard_count = inner.video_queue.len() - 1;
+        inner.video_queue.drain(..discard_count);
+        let discard_count = discard_count as i64;
+        inner.dropped_frames += discard_count;
+        inner.dropped_frames_resync += discard_count;
+
+        // 最新フレームの PTS を現在時刻へ対応付け直す
+        inner.video_start_time_ns = now_ns;
+        inner.first_video_pts_us = latest_pts_us;
+        inner.video_only_started = true;
+        inner.resync_count += 1;
+        inner.blocked_since_ns = None;
+
+        let frame = inner
+            .video_queue
+            .pop_front()
+            .expect("video queue must contain exactly one latest frame after draining");
+        Self::render_frame_internal(inner, &frame, audio_clock_us)
     }
 
     fn render_frame_internal(
