@@ -66,7 +66,7 @@ cargo build
 
 ### ソースからビルド
 
-`Cargo.toml` の `[package.metadata.external-dependencies.sdl3]` で指定した SDL3 (現在は 3.4.12) をソースからビルドする場合は `source-build` feature を有効にしてください。
+`Cargo.toml` の `[package.metadata.external-dependencies.sdl3]` で指定した SDL3 (現在は 3.4.18) をソースからビルドする場合は `source-build` feature を有効にしてください。
 
 ```bash
 cargo build --features source-build

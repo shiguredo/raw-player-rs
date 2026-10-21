@@ -31,7 +31,7 @@ macOS ゼロコピー: CVPixelBuffer 経由は I420 / NV12 のみ (偶数寸法)
 ## ビルド
 
 デフォルトでは GitHub Releases から prebuilt SDL3 バイナリをダウンロードしてビルドする。
-参照する SDL3 のタグは `Cargo.toml` の `[package.metadata.external-dependencies.sdl3]` (現在は `release-3.4.12`)。
+参照する SDL3 のタグは `Cargo.toml` の `[package.metadata.external-dependencies.sdl3]` (現在は `release-3.4.18`)。
 
 ```bash
 cargo build

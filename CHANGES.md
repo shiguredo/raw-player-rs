@@ -23,6 +23,8 @@
   - @voluntas
 - [ADD] SDL のシグナルハンドラを登録せずに初期化する init_without_signal_handlers() を追加する
   - @voluntas
+- [UPDATE] SDL 3.4.18 にアップデートする
+  - @voluntas
 - [FIX] 映像のみ再生で再生時計が PTS からずれたときに描画が止まり続けるのを修正する
   - @voluntas
 
