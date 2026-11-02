@@ -1,4 +1,6 @@
-use crate::ffi;
+//! クレート共通のエラー型と Result 別名。
+
+use crate::sys;
 use std::ffi::CStr;
 
 #[derive(Debug, Clone)]
@@ -12,7 +14,7 @@ pub enum Error {
 impl Error {
     pub fn from_sdl() -> Self {
         let message = unsafe {
-            let ptr = ffi::SDL_GetError();
+            let ptr = sys::SDL_GetError();
             if ptr.is_null() {
                 "Unknown SDL error".to_string()
             } else {

@@ -2,7 +2,7 @@
 //!
 //! shiguredo_video_device でカメラ映像を取得し、
 //! shiguredo_audio_device でマイク音声を取得し、
-//! raw_player::VideoPlayer で AV 同期再生する。
+//! raw_player::video_player::VideoPlayer で AV 同期再生する。
 //!
 //! ```
 //! cargo run --example player -- --list-devices
@@ -14,7 +14,9 @@ use std::process;
 use std::sync::mpsc;
 use std::time::Instant;
 
-use raw_player::{AudioFormat, KEYCODE_ESCAPE, VideoPlayer};
+use raw_player::audio_format::AudioFormat;
+use raw_player::event::KEYCODE_ESCAPE;
+use raw_player::video_player::VideoPlayer;
 use shiguredo_audio_device::{
     AudioCapture, AudioCaptureConfig, AudioDeviceList, AudioFormat as DeviceAudioFormat,
     AudioFrameOwned,
@@ -76,15 +78,15 @@ fn print_usage() {
         "Usage: player [OPTIONS]
 
 Options:
-  --list-devices              デバイス一覧を表示して終了
-  --video-input-device <id>   映像入力デバイス ID
-  --audio-input-device <id>   音声入力デバイス ID
-  --resolution <value>        解像度 (720p, 1080p, 4k, WxH) [default: 720p]
-  --fps <n>                   フレームレート [default: 30]
-  --sample-rate <n>           音声サンプルレート [default: 48000]
-  --channels <n>              音声チャンネル数 [default: 1]
-  --duration <sec>            再生時間 (秒)
-  -h, --help                  ヘルプを表示"
+  --list-devices              List devices and exit
+  --video-input-device <id>   Video input device ID
+  --audio-input-device <id>   Audio input device ID
+  --resolution <value>        Resolution (720p, 1080p, 4k, WxH) [default: 720p]
+  --fps <n>                   Frame rate [default: 30]
+  --sample-rate <n>           Audio sample rate [default: 48000]
+  --channels <n>              Audio channel count [default: 1]
+  --duration <sec>            Playback duration in seconds
+  -h, --help                  Show help"
     );
 }
 
@@ -118,7 +120,7 @@ fn parse_args() -> Args {
             "--video-input-device" => {
                 i += 1;
                 if i >= args.len() {
-                    eprintln!("エラー: --video-input-device に値が必要です");
+                    eprintln!("error: --video-input-device requires a value");
                     std::process::exit(1);
                 }
                 result.video_input_device = Some(args[i].clone());
@@ -126,7 +128,7 @@ fn parse_args() -> Args {
             "--audio-input-device" => {
                 i += 1;
                 if i >= args.len() {
-                    eprintln!("エラー: --audio-input-device に値が必要です");
+                    eprintln!("error: --audio-input-device requires a value");
                     std::process::exit(1);
                 }
                 result.audio_input_device = Some(args[i].clone());
@@ -134,58 +136,58 @@ fn parse_args() -> Args {
             "--resolution" => {
                 i += 1;
                 if i >= args.len() {
-                    eprintln!("エラー: --resolution に値が必要です");
+                    eprintln!("error: --resolution requires a value");
                     std::process::exit(1);
                 }
                 if let Some((w, h)) = parse_resolution(&args[i]) {
                     result.width = w;
                     result.height = h;
                 } else {
-                    eprintln!("エラー: 不正な解像度: {}", args[i]);
+                    eprintln!("error: invalid resolution: {}", args[i]);
                     std::process::exit(1);
                 }
             }
             "--fps" => {
                 i += 1;
                 if i >= args.len() {
-                    eprintln!("エラー: --fps に値が必要です");
+                    eprintln!("error: --fps requires a value");
                     std::process::exit(1);
                 }
                 result.fps = args[i].parse().unwrap_or_else(|_| {
-                    eprintln!("エラー: 不正な fps: {}", args[i]);
+                    eprintln!("error: invalid fps: {}", args[i]);
                     std::process::exit(1);
                 });
             }
             "--sample-rate" => {
                 i += 1;
                 if i >= args.len() {
-                    eprintln!("エラー: --sample-rate に値が必要です");
+                    eprintln!("error: --sample-rate requires a value");
                     std::process::exit(1);
                 }
                 result.sample_rate = args[i].parse().unwrap_or_else(|_| {
-                    eprintln!("エラー: 不正な sample-rate: {}", args[i]);
+                    eprintln!("error: invalid sample-rate: {}", args[i]);
                     std::process::exit(1);
                 });
             }
             "--channels" => {
                 i += 1;
                 if i >= args.len() {
-                    eprintln!("エラー: --channels に値が必要です");
+                    eprintln!("error: --channels requires a value");
                     std::process::exit(1);
                 }
                 result.channels = args[i].parse().unwrap_or_else(|_| {
-                    eprintln!("エラー: 不正な channels: {}", args[i]);
+                    eprintln!("error: invalid channels: {}", args[i]);
                     std::process::exit(1);
                 });
             }
             "--duration" => {
                 i += 1;
                 if i >= args.len() {
-                    eprintln!("エラー: --duration に値が必要です");
+                    eprintln!("error: --duration requires a value");
                     std::process::exit(1);
                 }
                 result.duration = Some(args[i].parse().unwrap_or_else(|_| {
-                    eprintln!("エラー: 不正な duration: {}", args[i]);
+                    eprintln!("error: invalid duration: {}", args[i]);
                     std::process::exit(1);
                 }));
             }
@@ -194,7 +196,7 @@ fn parse_args() -> Args {
                 std::process::exit(0);
             }
             other => {
-                eprintln!("エラー: 不明な引数: {other}");
+                eprintln!("error: unknown argument: {other}");
                 print_usage();
                 std::process::exit(1);
             }
@@ -212,11 +214,11 @@ fn map_audio_format(format: DeviceAudioFormat) -> AudioFormat {
 }
 
 fn list_devices() {
-    println!("=== 映像デバイス一覧 ===");
+    println!("=== Video devices ===");
     match VideoDeviceList::enumerate() {
         Ok(devices) => {
             if devices.is_empty() {
-                println!("  映像デバイスが見つかりません");
+                println!("  No video devices found");
             } else {
                 for device in &devices {
                     let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
@@ -236,16 +238,16 @@ fn list_devices() {
                 }
             }
         }
-        Err(e) => eprintln!("  映像デバイスの列挙に失敗: {e:?}"),
+        Err(e) => eprintln!("  Failed to enumerate video devices: {e:?}"),
     }
 
     println!();
 
-    println!("=== 音声入力デバイス一覧 ===");
+    println!("=== Audio input devices ===");
     match AudioDeviceList::enumerate_input() {
         Ok(devices) => {
             if devices.is_empty() {
-                println!("  音声入力デバイスが見つかりません");
+                println!("  No audio input devices found");
             } else {
                 for device in &devices {
                     let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
@@ -259,16 +261,16 @@ fn list_devices() {
                 }
             }
         }
-        Err(e) => eprintln!("  音声入力デバイスの列挙に失敗: {e:?}"),
+        Err(e) => eprintln!("  Failed to enumerate audio input devices: {e:?}"),
     }
 }
 
-/// PixelFormat を raw_player::VideoFormat に変換する。
-fn map_video_format(pf: PixelFormat) -> Option<raw_player::VideoFormat> {
+/// PixelFormat を raw_player::video_format::VideoFormat に変換する。
+fn map_video_format(pf: PixelFormat) -> Option<raw_player::video_format::VideoFormat> {
     match pf {
-        PixelFormat::Nv12 => Some(raw_player::VideoFormat::NV12),
-        PixelFormat::I420 => Some(raw_player::VideoFormat::I420),
-        PixelFormat::Yuy2 => Some(raw_player::VideoFormat::YUY2),
+        PixelFormat::Nv12 => Some(raw_player::video_format::VideoFormat::NV12),
+        PixelFormat::I420 => Some(raw_player::video_format::VideoFormat::I420),
+        PixelFormat::Yuy2 => Some(raw_player::video_format::VideoFormat::YUY2),
         // MJPEG は圧縮形式のため raw_player ではそのまま再生できない
         PixelFormat::Mjpeg | PixelFormat::Unknown(_) => None,
     }
@@ -277,7 +279,10 @@ fn map_video_format(pf: PixelFormat) -> Option<raw_player::VideoFormat> {
 /// VideoFrame の PixelFormat に応じて適切な enqueue メソッドを呼び出す。
 /// pixel_buffer がある場合は CVPixelBuffer をそのまま渡してゼロコピーする。
 /// ない場合は stride 付きデータをコピーして渡す。
-fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_player::Result<()> {
+fn enqueue_video_frame(
+    player: &VideoPlayer,
+    frame: &VideoFrame<'_>,
+) -> raw_player::error::Result<()> {
     let pts_us = frame.timestamp_us;
 
     // macOS: pixel_buffer がある場合はゼロコピーパス
@@ -332,7 +337,7 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
                 static WARN_I420_UV: Once = Once::new();
                 WARN_I420_UV.call_once(|| {
                     eprintln!(
-                        "警告: I420 の UV データが短すぎるか stride が不正なためフレームをスキップします"
+                        "warning: skipping frame because the I420 UV data is too short or the stride is invalid"
                     );
                 });
                 return Ok(());
@@ -364,7 +369,7 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
             static WARN: Once = Once::new();
             WARN.call_once(|| {
                 eprintln!(
-                    "警告: 未対応のピクセルフォーマット: {}",
+                    "warning: unsupported pixel format: {}",
                     frame.pixel_format.name()
                 );
             });
@@ -412,7 +417,7 @@ fn main() {
     }) {
         Ok(capture) => capture,
         Err(e) => {
-            eprintln!("VideoCapture の作成に失敗しました: {e:?}");
+            eprintln!("Failed to create VideoCapture: {e:?}");
             process::exit(1);
         }
     };
@@ -429,7 +434,7 @@ fn main() {
     }) {
         Ok(capture) => Some(capture),
         Err(e) => {
-            eprintln!("音声デバイスの初期化に失敗 ({e:?}), 映像のみで動作します");
+            eprintln!("Failed to initialize the audio device ({e:?}); continuing with video only");
             None
         }
     };
@@ -439,20 +444,20 @@ fn main() {
     let player = match VideoPlayer::new(args.width, args.height, &title) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("VideoPlayer の作成に失敗しました: {e:?}");
+            eprintln!("Failed to create VideoPlayer: {e:?}");
             process::exit(1);
         }
     };
 
     println!("=== Player ===");
-    println!("解像度: {}x{}", args.width, args.height);
+    println!("Resolution: {}x{}", args.width, args.height);
     println!("FPS: {}", args.fps);
     println!("GPU Renderer: {}", player.renderer_name());
     if let Some(ref ac) = audio_capture {
-        println!("音声: {} Hz, {} ch", ac.sample_rate(), ac.channels());
+        println!("Audio: {} Hz, {} ch", ac.sample_rate(), ac.channels());
     }
     if let Some(duration) = args.duration {
-        println!("再生時間: {duration} 秒");
+        println!("Duration: {duration} s");
     }
 
     // ESC キーで終了
@@ -460,24 +465,24 @@ fn main() {
 
     // キャプチャ開始
     if let Err(e) = video_capture.start() {
-        eprintln!("映像キャプチャの開始に失敗しました: {e:?}");
+        eprintln!("Failed to start video capture: {e:?}");
         process::exit(1);
     }
     if let Some(ref mut ac) = audio_capture
         && let Err(e) = ac.start()
     {
-        eprintln!("音声キャプチャの開始に失敗 ({e:?}), 映像のみで動作します");
+        eprintln!("Failed to start audio capture ({e:?}); continuing with video only");
         audio_capture = None;
     }
 
     // 再生開始
     if let Err(e) = player.play() {
-        eprintln!("再生の開始に失敗しました: {e:?}");
+        eprintln!("Failed to start playback: {e:?}");
         process::exit(1);
     }
 
     println!();
-    println!("ESC キーで終了, S キーで統計オーバーレイ切替");
+    println!("Press ESC to quit, S to toggle the stats overlay");
     println!();
 
     let start = Instant::now();
@@ -490,7 +495,7 @@ fn main() {
                 CaptureMessage::Video(owned) => {
                     let frame = owned.as_frame();
                     if let Err(e) = enqueue_video_frame(&player, &frame) {
-                        eprintln!("映像フレームの enqueue に失敗: {e}");
+                        eprintln!("Failed to enqueue video frame: {e}");
                     }
                 }
                 CaptureMessage::VideoPixelBuffer(pbf) => {
@@ -508,7 +513,7 @@ fn main() {
                             pbf.timestamp_us,
                         )
                     } {
-                        eprintln!("映像フレームの enqueue に失敗: {e}");
+                        eprintln!("Failed to enqueue video frame: {e}");
                     }
                 }
                 CaptureMessage::Audio(owned) => {
@@ -520,7 +525,7 @@ fn main() {
                         owned.channels,
                         format,
                     ) {
-                        eprintln!("音声データの enqueue に失敗: {e}");
+                        eprintln!("Failed to enqueue audio data: {e}");
                     }
                 }
             }
@@ -550,21 +555,21 @@ fn main() {
     let elapsed = start.elapsed().as_secs_f64();
 
     println!();
-    println!("=== 統計 ===");
-    println!("時間: {elapsed:.2} 秒");
+    println!("=== Stats ===");
+    println!("Elapsed: {elapsed:.2} s");
     println!(
-        "映像フレーム: enqueue={}, render={}, drop={}, repeat={}",
+        "Video frames: enqueue={}, render={}, drop={}, repeat={}",
         stats.total_frames_enqueued,
         stats.total_frames_rendered,
         stats.dropped_frames,
         stats.repeated_frames,
     );
     println!("FPS: {:.1}", stats.current_fps);
-    println!("AV 同期差: {:.1} ms", stats.sync_diff_us as f64 / 1000.0);
+    println!("AV sync diff: {:.1} ms", stats.sync_diff_us as f64 / 1000.0);
 
     // SDL リソースをすべて解放してから SDL を終了する
     drop(player);
     // Safety: player は直前の drop(player) で解放済み
     unsafe { raw_player::quit() };
-    println!("完了");
+    println!("Done");
 }

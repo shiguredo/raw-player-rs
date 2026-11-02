@@ -45,16 +45,16 @@ PCM / I420 / NV12 / YUY2 / RGBA / BGRA データを PTS (Presentation Timestamp)
 
 - macOS 26 arm64
 - macOS 15 arm64
+- Ubuntu 26.04 x86_64
+- Ubuntu 26.04 arm64
 - Ubuntu 24.04 x86_64
 - Ubuntu 24.04 arm64
-- Ubuntu 22.04 x86_64
-- Ubuntu 22.04 arm64
 - Windows Server 2025 x86_64
 - Windows 11 x86_64
 
 ## 対応 Rust
 
-- 1.88 以降
+- 1.95 以降
 
 ## ビルド
 
@@ -66,7 +66,7 @@ cargo build
 
 ### ソースからビルド
 
-`Cargo.toml` の `[package.metadata.external-dependencies.sdl3]` で指定した SDL3 (現在は 3.4.12) をソースからビルドする場合は `source-build` feature を有効にしてください。
+`Cargo.toml` の `[package.metadata.external-dependencies.sdl3]` で指定した SDL3 (現在は 3.4.18) をソースからビルドする場合は `source-build` feature を有効にしてください。
 
 ```bash
 cargo build --features source-build
@@ -93,9 +93,9 @@ sudo apt-get install -y libclang-dev libasound2-dev libpulse-dev \
 ### I420 (YUV420P) 再生
 
 ```rust
-use raw_player::VideoPlayer;
+use raw_player::video_player::VideoPlayer;
 
-fn main() -> raw_player::Result<()> {
+fn main() -> raw_player::error::Result<()> {
     let player = VideoPlayer::new(1920, 1080, "I420 Player")?;
 
     // Y, U, V プレーンを用意
@@ -157,7 +157,8 @@ player.enqueue_video_bgra(&rgba_data, 1920, 1080, 0)?;
 ### PTS ベースの AV 同期再生
 
 ```rust
-use raw_player::{VideoPlayer, AudioFormat};
+use raw_player::audio_format::AudioFormat;
+use raw_player::video_player::VideoPlayer;
 
 let player = VideoPlayer::new(1920, 1080, "AV Sync Player")?;
 
@@ -184,7 +185,8 @@ player.close();
 ### 音声のみ再生
 
 ```rust
-use raw_player::{AudioPlayer, AudioFormat};
+use raw_player::audio_format::AudioFormat;
+use raw_player::audio_player::AudioPlayer;
 
 raw_player::init()?;
 
@@ -201,6 +203,23 @@ player.process()?;
 
 `pause()` 後に `stop()` せず再 enqueue すると `NotPlaying` になります。
 キューを捨ててやり直す場合は `stop()` のあと enqueue → `play()` してください。
+
+### シグナルハンドラ
+
+`init()` は SDL3 を初期化します。SDL3 はこのとき、SIGINT / SIGTERM のハンドラが既定のままなら、それらを SDL の終了イベント (`Event::Quit`) に変換するシグナルハンドラを登録します。アプリ側で独自のシグナルハンドラを登録している場合、SDL3 はそれを上書きしません。
+
+SDL のイベントを処理しないアプリでは、この終了イベントを処理するコードがないため、SIGTERM を受けても終了できません。`timeout` コマンド、systemd、コンテナの停止が効かなくなります。
+
+そのようなアプリは `init_without_signal_handlers()` を使うか、SDL の初期化より前に環境変数 `SDL_NO_SIGNAL_HANDLERS=1` を設定してください。
+
+```rust
+// SDL のシグナルハンドラを登録せずに初期化する
+raw_player::init_without_signal_handlers()?;
+```
+
+`VideoPlayer::new()` は内部で `init()` を呼ぶため、`init_without_signal_handlers()` を先に呼んでおけば二重に初期化されることはありません。
+
+既に `init()` で初期化済みの場合、`init_without_signal_handlers()` は何もせず `Ok(())` を返します。
 
 ## API リファレンス
 
@@ -280,11 +299,15 @@ let player = AudioPlayer::new();
 ### 低レベル API
 
 ウィンドウ、レンダラー、テクスチャを直接操作する場合に使用。
+SDL のイベントを処理しないアプリは `init()` ではなく `init_without_signal_handlers()` を使う (「シグナルハンドラ」を参照)。
 
 ```rust
-use raw_player::{init, quit, poll_event, Event, Window, Renderer};
+use raw_player::event::{Event, poll_event};
+use raw_player::renderer::Renderer;
+use raw_player::window::Window;
+use raw_player::{init, quit};
 
-fn main() -> raw_player::Result<()> {
+fn main() -> raw_player::error::Result<()> {
     init()?;
 
     let window = Window::new("Example", 640, 480)?;

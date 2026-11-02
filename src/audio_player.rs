@@ -1,10 +1,12 @@
+//! 音声のみを再生するためのプレイヤーと統計型。
+
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use crate::audio_format::AudioFormat;
 use crate::audio_stream::AudioStream;
 use crate::error::{Error, Result};
-use crate::ffi;
+use crate::sys;
 
 struct AudioChunk {
     pts_us: i64,
@@ -47,6 +49,11 @@ struct AudioPlayerInner {
 }
 
 pub struct AudioPlayer {
+    // 公開 API がすべて &self の同期メソッドで、enqueue / play / pause / stats が
+    // 呼び出しスレッド内で状態を確定する必要がある。状態を専用スレッドへ移して
+    // チャネルで依頼する構成も検討したが、stats() や audio_clock_us() のような
+    // 即時読み出しのたびに往復が発生し、SDL ストリームの寿命管理も別スレッドへ
+    // 移す必要があるため、Mutex で保護する。
     inner: Mutex<AudioPlayerInner>,
 }
 
@@ -101,7 +108,10 @@ impl AudioPlayer {
 
         let num_samples = data.len() as i64 / (channels as i64 * sample_size as i64);
 
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("audio player state mutex poisoned");
 
         if inner.has_played && !inner.playing {
             return Err(Error::NotPlaying);
@@ -126,7 +136,10 @@ impl AudioPlayer {
     /// 途中で失敗した場合は呼び出し前のフラグを維持し、再試行でデバイス操作が再度走る。
     /// `process` 成功・`resume` 失敗時にストリームへ載った PCM はロールバックしない。
     pub fn play(&self) -> Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("audio player state mutex poisoned");
         if !inner.playing {
             // デバイス操作を先に行い、成功後にだけローカルフラグを更新する
             Self::process_audio_queue(&mut inner)?;
@@ -136,7 +149,7 @@ impl AudioPlayer {
             inner.playing = true;
             inner.has_played = true;
             if inner.play_start_time_ns == 0 {
-                inner.play_start_time_ns = unsafe { ffi::SDL_GetTicksNS() };
+                inner.play_start_time_ns = unsafe { sys::SDL_GetTicksNS() };
             }
         }
         Ok(())
@@ -147,7 +160,10 @@ impl AudioPlayer {
     /// ストリームの `pause` が成功したあとでのみ `playing = false` にする。
     /// 失敗時は呼び出し前の論理状態を維持し、再試行で本体が再実行される。
     pub fn pause(&self) -> Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("audio player state mutex poisoned");
         if inner.playing {
             if let Some(ref mut stream) = inner.stream {
                 stream.pause()?;
@@ -163,7 +179,10 @@ impl AudioPlayer {
     /// `pause` 成功・`clear` 失敗時はデバイスは pause 済み・アプリキューは未クリア・フラグは呼び出し前のまま。
     /// 再試行では `pause` → `clear` → ローカル破棄をそのまま再実行する。
     pub fn stop(&self) -> Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("audio player state mutex poisoned");
         // 不可逆なキュー破棄より先にデバイス操作を完了させる
         if let Some(ref mut stream) = inner.stream {
             stream.pause()?;
@@ -181,15 +200,24 @@ impl AudioPlayer {
     }
 
     pub fn is_playing(&self) -> bool {
-        self.inner.lock().unwrap().playing
+        self.inner
+            .lock()
+            .expect("audio player state mutex poisoned")
+            .playing
     }
 
     pub fn volume(&self) -> f32 {
-        self.inner.lock().unwrap().volume
+        self.inner
+            .lock()
+            .expect("audio player state mutex poisoned")
+            .volume
     }
 
     pub fn set_volume(&self, volume: f32) -> Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("audio player state mutex poisoned");
         let clamped = volume.clamp(0.0, 1.0);
         inner.volume = clamped;
         if let Some(ref mut stream) = inner.stream {
@@ -200,18 +228,27 @@ impl AudioPlayer {
 
     /// 現在の音声再生位置をマイクロ秒で返す。
     pub fn audio_clock_us(&self) -> i64 {
-        let inner = self.inner.lock().unwrap();
+        let inner = self
+            .inner
+            .lock()
+            .expect("audio player state mutex poisoned");
         Self::get_audio_clock_us(&inner)
     }
 
     /// 音声再生が開始されたかを返す。
     pub fn is_started(&self) -> bool {
-        self.inner.lock().unwrap().audio_started
+        self.inner
+            .lock()
+            .expect("audio player state mutex poisoned")
+            .audio_started
     }
 
     /// キューに溜まったチャンクをストリームにフラッシュする (再生中のみ)。
     pub fn process(&self) -> Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("audio player state mutex poisoned");
         if inner.playing {
             Self::process_audio_queue(&mut inner)?;
         }
@@ -220,7 +257,10 @@ impl AudioPlayer {
 
     /// 音声キューのバッファ量をミリ秒で返す。
     pub fn audio_queue_ms(&self) -> f64 {
-        let inner = self.inner.lock().unwrap();
+        let inner = self
+            .inner
+            .lock()
+            .expect("audio player state mutex poisoned");
         if inner.sample_rate > 0 {
             let sample_size: i64 = if inner.is_float { 4 } else { 2 };
             let bytes_per_frame = inner.channels as i64 * sample_size;
@@ -243,7 +283,10 @@ impl AudioPlayer {
     }
 
     pub fn stats(&self) -> AudioPlayerStats {
-        let inner = self.inner.lock().unwrap();
+        let inner = self
+            .inner
+            .lock()
+            .expect("audio player state mutex poisoned");
 
         let clock_us = Self::get_audio_clock_us(&inner);
 
@@ -269,7 +312,7 @@ impl AudioPlayer {
         };
 
         let elapsed_ms = if inner.has_played {
-            let now = unsafe { ffi::SDL_GetTicksNS() };
+            let now = unsafe { sys::SDL_GetTicksNS() };
             (now - inner.play_start_time_ns) as f64 / 1_000_000.0
         } else {
             0.0
@@ -421,7 +464,7 @@ mod tests {
     #[test]
     fn requeue_after_pop_restores_queue_order() {
         let mut q = VecDeque::from([1u32, 2, 3]);
-        let c = q.pop_front().unwrap();
+        let c = q.pop_front().expect("テスト用キューは先頭要素を持つはず");
         assert_eq!(c, 1);
         q.push_front(c);
         assert_eq!(q.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);

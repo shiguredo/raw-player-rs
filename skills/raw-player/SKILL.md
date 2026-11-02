@@ -12,7 +12,7 @@ description: raw_player クレート (Rust) を使ってデコード済みの音
 - `VideoPlayer` — ウィンドウ作成、フレーム描画、AV 同期、統計オーバーレイ
 - `AudioPlayer` — PCM キューイング、再生クロック取得 (音声のみ用途)
 - `Window` / `Renderer` / `Texture` — SDL3 ベースの低レベル API
-- `Event` / `poll_event` / `init` / `quit` — イベントループ用関数群
+- `Event` / `poll_event` / `init` / `init_without_signal_handlers` / `quit` — イベントループ用関数群
 - `AudioFormat` — `S16` / `F32` の PCM フォーマット指定
 - `VideoFormat` — `I420` / `NV12` / `YUY2` / `Rgba` / `Bgra`
 
@@ -23,7 +23,7 @@ macOS ゼロコピー: CVPixelBuffer 経由は I420 / NV12 のみ (偶数寸法)
 ## API の選び方
 
 1. AV 同期再生をしたい → `VideoPlayer` 一つで音声と映像の両方を扱う。音声 PTS をマスタークロックとして映像が同期される
-2. 音声のみ再生したい → `AudioPlayer` を使う。`raw_player::init()` を先に呼ぶ。連続 enqueue する場合は再生中に `process()` も呼ぶ
+2. 音声のみ再生したい → `AudioPlayer` を使う。`raw_player::init()` を先に呼ぶ。連続 enqueue する場合は再生中に `process()` も呼ぶ。SDL のイベントを回さない場合は `init_without_signal_handlers()` を使う
 3. ウィンドウや描画を直接制御したい → `Window` / `Renderer` / `Texture` を使う。終了時は `drop` してから `unsafe { quit() }` を呼ぶ
 
 `VideoPlayer` を使う場合、`enqueue_audio` を呼ばなければ映像のみ再生になる。映像のみ再生では映像 PTS がそのまま再生時刻になる。映像のみの pause / play では壁時計が進まないよう補正される。
@@ -31,7 +31,7 @@ macOS ゼロコピー: CVPixelBuffer 経由は I420 / NV12 のみ (偶数寸法)
 ## ビルド
 
 デフォルトでは GitHub Releases から prebuilt SDL3 バイナリをダウンロードしてビルドする。
-参照する SDL3 のタグは `Cargo.toml` の `[package.metadata.external-dependencies.sdl3]` (現在は `release-3.4.12`)。
+参照する SDL3 のタグは `Cargo.toml` の `[package.metadata.external-dependencies.sdl3]` (現在は `release-3.4.18`)。
 
 ```bash
 cargo build
@@ -101,7 +101,7 @@ player.enqueue_video_bgra(&data, 1920, 1080, pts_us)?;
 - `y_pitch` / `uv_pitch` は `VideoFrame` に保存されるが、描画では CVPixelBuffer の実 stride を使う
 
 ```rust
-use raw_player::VideoFormat;
+use raw_player::video_format::VideoFormat;
 
 unsafe {
     player.enqueue_video_pixel_buffer(
@@ -123,7 +123,8 @@ unsafe {
 音声 PTS がマスタークロックになる。音声と映像の両方を同じ `VideoPlayer` に enqueue し、`poll_events()` を回すだけで自動同期される。
 
 ```rust
-use raw_player::{VideoPlayer, AudioFormat};
+use raw_player::audio_format::AudioFormat;
+use raw_player::video_player::VideoPlayer;
 
 let player = VideoPlayer::new(1920, 1080, "AV Sync Player")?;
 
@@ -146,7 +147,8 @@ player.close();
 ## 音声のみ再生
 
 ```rust
-use raw_player::{AudioPlayer, AudioFormat};
+use raw_player::audio_format::AudioFormat;
+use raw_player::audio_player::AudioPlayer;
 
 raw_player::init()?;
 
@@ -163,14 +165,29 @@ player.process()?;
 
 `pause()` 後に `stop()` せず再 enqueue すると `Error::NotPlaying` になる。再開するなら `play()`、キューを捨ててやり直すなら `stop()` のあと enqueue → `play()`。
 
+## シグナルハンドラ
+
+`init()` は既定で SDL3 のシグナルハンドラを有効にしたまま初期化する。SIGINT / SIGTERM のハンドラが既定 (`SIG_DFL`) のとき、SDL3 はそれらを SDL の終了イベント (`Event::Quit`) に変換するため、SDL のイベントを処理しないアプリ (音声のみ再生など) では SIGTERM を受けても終了できなくなる。`timeout` コマンド、systemd、コンテナの停止が効かなくなる。アプリ側で独自のシグナルハンドラを登録している場合、SDL3 はそれを上書きしない。
+
+そのようなアプリは `init_without_signal_handlers()` を使う。SDL の初期化より前に環境変数 `SDL_NO_SIGNAL_HANDLERS=1` を設定するのと同等。
+
+```rust
+raw_player::init_without_signal_handlers()?;
+```
+
+`VideoPlayer::new()` は内部で `init()` を呼ぶ。`init_without_signal_handlers()` を先に呼んでおけば二重初期化にはならない。既に `init()` で初期化済みの場合、`init_without_signal_handlers()` は何もせず `Ok(())` を返す。
+
 ## 低レベル API
 
 ウィンドウ、レンダラー、テクスチャを直接操作する場合の典型的な流れ。
 
 ```rust
-use raw_player::{init, quit, poll_event, Event, Window, Renderer};
+use raw_player::event::{Event, poll_event};
+use raw_player::renderer::Renderer;
+use raw_player::window::Window;
+use raw_player::{init, quit};
 
-fn main() -> raw_player::Result<()> {
+fn main() -> raw_player::error::Result<()> {
     init()?;
 
     let window = Window::new("Example", 640, 480)?;
@@ -231,14 +248,15 @@ cargo run --example player --features source-build -- --duration 30
 - `enqueue_video_pixel_buffer` は I420 / NV12・偶数寸法のみ。YUY2 / RGBA / BGRA や奇数寸法は拒否される
 - 低レベル API では `Window` / `Renderer` / `Texture` を `quit()` より先に `drop` する
 - `AudioPlayer` 単独利用時は `raw_player::init()` を忘れない。連続再生では `process()` も必要
+- SDL のイベントを回さないアプリで `init()` を使うと、SDL が SIGINT / SIGTERM を終了イベントに変換してしまい SIGTERM で終了できなくなる。`init_without_signal_handlers()` か `SDL_NO_SIGNAL_HANDLERS=1` を使う
 - `AudioPlayer` は `pause()` 後の enqueue が `NotPlaying`。`stop()` でリセットするか `play()` で再開する
 - ソースビルドは Linux で apt パッケージが必要。CI の `.github/workflows/ci.yml` を参照
-- 対応プラットフォーム: macOS 26/15 (arm64), Ubuntu 24.04/22.04 (x86_64/arm64), Windows Server 2025 / Windows 11 (x86_64)
-- 対応 Rust: 1.88 以降
+- 対応プラットフォーム: macOS 26/15 (arm64), Ubuntu 26.04/24.04 (x86_64/arm64), Windows Server 2025 / Windows 11 (x86_64)
+- 対応 Rust: 1.95 以降
 
 ## テスト構成
 
 - 単体テスト: `tests/test_<module>.rs` または `src/<module>.rs` の `#[cfg(test)]`
-- PBT (Property-Based Testing): `pbt/tests/prop_<module>.rs` で proptest を使う
+- PBT (Property-Based Testing): `pbt/tests/prop_<module>.rs` で noprop を使う
 - Fuzzing: `cargo-fuzz`、`make fuzzing` / `make fuzzing-parallel`
 - カバレッジ: `make cover` (`cargo llvm-cov`、`--features source-build`)

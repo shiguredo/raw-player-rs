@@ -5,5 +5,7 @@ edition = "2024"
 publish = false
 
 [dev-dependencies]
-proptest = "1"
+# プロパティベーステスト
+noprop = "0.2"
+# 被テスト対象
 raw_player = { path = ".." }

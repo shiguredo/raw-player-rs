@@ -1,8 +1,8 @@
 [package]
 name = "raw_player"
-version = "2026.2.0"
+version = "2026.3.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 description = "Raw audio/video player for Rust"
 readme = "README.md"
 homepage = "https://github.com/shiguredo/raw-player-rs"
@@ -15,21 +15,28 @@ include = ["/LICENSE", "/README.md", "/build.rs", "/src/**"]
 # (この内容は build.rs の中からのみ参照される)
 [package.metadata.external-dependencies.sdl3]
 url = "https://github.com/libsdl-org/SDL"
-tag = "release-3.4.12"
+tag = "release-3.4.18"
 
 [workspace]
 members = ["pbt"]
 
+# 依存を最小化する方針のため、ランタイム依存は持たない
 [dependencies]
 
 [dev-dependencies]
-shiguredo_audio_device = "2026.2"
-shiguredo_video_device = "2026.2"
+# examples/player でマイク入力に使う
+shiguredo_audio_device = "2026.3"
+# examples/player でカメラ入力に使う
+shiguredo_video_device = "2026.3"
 
 [build-dependencies]
-bindgen = "0.72"
+# SDL3 ヘッダから Rust FFI バインディングを生成する
+bindgen = "0.73"
+# SDL3 を CMake でビルドする
 shiguredo_cmake = "4.4"
+# package.metadata.external-dependencies を読む
 shiguredo_toml = "2026.2"
 
 [features]
+# SDL3 をソースからビルドする (CI・ローカル検証用。無効時は prebuilt を使う)
 source-build = []

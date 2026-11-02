@@ -85,7 +85,7 @@ impl PixelBufferRef {
                 "CVPixelBufferLockBaseAddress failed: {status}"
             )));
         }
-        Ok(PixelBufferLock { buffer: self })
+        Ok(PixelBufferLock { _buffer: self })
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -116,8 +116,7 @@ impl Drop for PixelBufferRef {
 
 /// CVPixelBuffer のロック中にプレーンデータへのアクセスを提供する RAII ガード。
 pub(crate) struct PixelBufferLock<'a> {
-    #[allow(dead_code)]
-    buffer: &'a PixelBufferRef,
+    _buffer: &'a PixelBufferRef,
 }
 
 impl<'a> PixelBufferLock<'a> {
@@ -125,14 +124,14 @@ impl<'a> PixelBufferLock<'a> {
     #[cfg(target_os = "macos")]
     pub fn plane(&self, index: usize) -> Result<&[u8]> {
         unsafe {
-            let ptr = CVPixelBufferGetBaseAddressOfPlane(self.buffer.ptr, index);
+            let ptr = CVPixelBufferGetBaseAddressOfPlane(self._buffer.ptr, index);
             if ptr.is_null() {
                 return Err(Error::invalid_argument(
                     "CVPixelBuffer plane base address is null",
                 ));
             }
-            let stride = CVPixelBufferGetBytesPerRowOfPlane(self.buffer.ptr, index);
-            let height = CVPixelBufferGetHeightOfPlane(self.buffer.ptr, index);
+            let stride = CVPixelBufferGetBytesPerRowOfPlane(self._buffer.ptr, index);
+            let height = CVPixelBufferGetHeightOfPlane(self._buffer.ptr, index);
             let len = plane_buffer_len(stride, height)?;
             Ok(std::slice::from_raw_parts(ptr, len))
         }
@@ -149,7 +148,7 @@ impl<'a> PixelBufferLock<'a> {
     /// SDL が要求する `i32` に安全に変換し、収まらない場合は `Err` を返す。
     #[cfg(target_os = "macos")]
     pub fn stride(&self, index: usize) -> Result<i32> {
-        let stride = unsafe { CVPixelBufferGetBytesPerRowOfPlane(self.buffer.ptr, index) };
+        let stride = unsafe { CVPixelBufferGetBytesPerRowOfPlane(self._buffer.ptr, index) };
         i32::try_from(stride).map_err(|_| {
             Error::invalid_argument(format!(
                 "CVPixelBuffer plane stride {stride} exceeds i32::MAX"
@@ -165,7 +164,7 @@ impl<'a> PixelBufferLock<'a> {
     /// 指定プレーンの高さ (行数) を返す。
     #[cfg(target_os = "macos")]
     pub fn plane_height(&self, index: usize) -> usize {
-        unsafe { CVPixelBufferGetHeightOfPlane(self.buffer.ptr, index) }
+        unsafe { CVPixelBufferGetHeightOfPlane(self._buffer.ptr, index) }
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -178,7 +177,7 @@ impl<'a> PixelBufferLock<'a> {
 impl Drop for PixelBufferLock<'_> {
     fn drop(&mut self) {
         unsafe {
-            CVPixelBufferUnlockBaseAddress(self.buffer.ptr, K_CV_PIXEL_BUFFER_LOCK_READ_ONLY);
+            CVPixelBufferUnlockBaseAddress(self._buffer.ptr, K_CV_PIXEL_BUFFER_LOCK_READ_ONLY);
         }
     }
 }
@@ -189,7 +188,10 @@ mod tests {
 
     #[test]
     fn plane_buffer_len_ok() {
-        assert_eq!(plane_buffer_len(640, 480).unwrap(), 640 * 480);
+        assert_eq!(
+            plane_buffer_len(640, 480).expect("640x480 のプレーン長は計算できるはず"),
+            640 * 480
+        );
     }
 
     #[test]

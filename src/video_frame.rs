@@ -1,3 +1,5 @@
+//! 映像フレームの内部表現。
+
 use crate::pixel_buffer::PixelBufferRef;
 use crate::video_format::VideoFormat;
 

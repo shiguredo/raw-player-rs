@@ -11,6 +11,39 @@
 
 ## develop
 
+## 2026.3.0
+
+**リリース日**: 2026-11-02
+
+- [CHANGE] Ubuntu 22.04 のサポートを終了する
+  - @voluntas
+- [CHANGE] MSRV (rust-version) を 1.95 に上げる
+  - @voluntas
+- [CHANGE] 型・関数の再エクスポートを廃止しモジュールパスでの import に変更する
+  - @voluntas
+- [CHANGE] VideoPlayerStats に理由別ドロップ数と復帰回数を追加する
+  - @voluntas
+- [ADD] Ubuntu 26.04 のサポートを追加する
+  - @voluntas
+- [ADD] SDL のシグナルハンドラを登録せずに初期化する `init_without_signal_handlers()` を追加する
+  - @voluntas
+- [UPDATE] SDL 3.4.18 にアップデートする
+  - @voluntas
+- [FIX] 映像のみ再生で再生時計が PTS からずれたときに描画が止まり続けるのを修正する
+  - @voluntas
+
+### misc
+
+- [UPDATE] PBT を proptest から noprop に移行する
+  - @voluntas
+- [UPDATE] 本番コードの unwrap を expect に置き換える
+  - @voluntas
+- [UPDATE] 不要なキャストをビット列経由の変換に置き換え #[allow] を削除する
+  - @voluntas
+- [UPDATE] 共有テストヘルパを tests/helpers に移動する
+  - @voluntas
+- [UPDATE] examples/player の出力メッセージを英語にする
+  - @voluntas
 
 ## 2026.2.0
 

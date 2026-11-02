@@ -1,6 +1,8 @@
+//! SDL3 テクスチャの作成・更新ラッパー。
+
 use crate::error::{Error, Result};
-use crate::ffi;
 use crate::renderer::Renderer;
+use crate::sys;
 use crate::video_format::VideoFormat;
 use std::ptr::NonNull;
 
@@ -9,7 +11,7 @@ use std::ptr::NonNull;
 const MAX_DIMENSION: i32 = i32::MAX / 4;
 
 pub struct Texture {
-    raw: NonNull<ffi::SDL_Texture>,
+    raw: NonNull<sys::SDL_Texture>,
     width: i32,
     height: i32,
     format: VideoFormat,
@@ -29,10 +31,10 @@ impl Texture {
             )));
         }
         let raw = unsafe {
-            ffi::SDL_CreateTexture(
+            sys::SDL_CreateTexture(
                 renderer.as_ptr(),
                 format.to_sdl_pixel_format() as _,
-                ffi::SDL_TextureAccess_SDL_TEXTUREACCESS_STREAMING as _,
+                sys::SDL_TextureAccess_SDL_TEXTUREACCESS_STREAMING as _,
                 width,
                 height,
             )
@@ -52,7 +54,7 @@ impl Texture {
         Self::new(renderer, VideoFormat::I420, width, height)
     }
 
-    pub fn as_ptr(&self) -> *mut ffi::SDL_Texture {
+    pub fn as_ptr(&self) -> *mut sys::SDL_Texture {
         self.raw.as_ptr()
     }
 
@@ -88,7 +90,7 @@ impl Texture {
         Self::ensure_plane_len(v_plane, v_pitch, chroma_h, "V")?;
 
         if unsafe {
-            ffi::SDL_UpdateYUVTexture(
+            sys::SDL_UpdateYUVTexture(
                 self.raw.as_ptr(),
                 std::ptr::null(),
                 y_plane.as_ptr(),
@@ -132,7 +134,7 @@ impl Texture {
         Self::ensure_plane_len(uv_plane, uv_pitch, chroma_h, "UV")?;
 
         if unsafe {
-            ffi::SDL_UpdateNVTexture(
+            sys::SDL_UpdateNVTexture(
                 self.raw.as_ptr(),
                 std::ptr::null(),
                 y_plane.as_ptr(),
@@ -173,7 +175,7 @@ impl Texture {
         Self::ensure_plane_len(data, pitch, self.height, "packed")?;
 
         if unsafe {
-            ffi::SDL_UpdateTexture(
+            sys::SDL_UpdateTexture(
                 self.raw.as_ptr(),
                 std::ptr::null(),
                 data.as_ptr().cast(),
@@ -255,6 +257,6 @@ impl Texture {
 
 impl Drop for Texture {
     fn drop(&mut self) {
-        unsafe { ffi::SDL_DestroyTexture(self.raw.as_ptr()) };
+        unsafe { sys::SDL_DestroyTexture(self.raw.as_ptr()) };
     }
 }

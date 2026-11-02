@@ -1,20 +1,32 @@
+//! 映像と音声を PTS ベースで同期再生するプレイヤー。
+//!
+//! 映像のみ再生の再生時計の基準と、時計が到着 PTS からずれて描画が止まったときの
+//! 復帰条件は `render_next_frame` と `resync_to_latest_frame` を参照すること。
+
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use crate::audio_format::AudioFormat;
 use crate::audio_player::AudioPlayer;
 use crate::error::{Error, Result};
-use crate::ffi;
+use crate::event::{Event, KEYCODE_S, poll_event};
 use crate::pixel_buffer::PixelBufferRef;
 use crate::renderer::Renderer;
+use crate::sys;
 use crate::texture::Texture;
 use crate::video_format::VideoFormat;
 use crate::video_frame::{FrameData, VideoFrame};
 use crate::window::Window;
-use crate::{Event, KEYCODE_S, poll_event};
 
 /// pitch 計算 (`width * 4`) で i32 オーバーフローしない最大 width。
 const MAX_DIMENSION: i32 = i32::MAX / 4;
+
+/// 映像のみ経路で描画できない状態がこの時間 (ナノ秒) 継続したら最新フレームへ復帰する。
+///
+/// 未来の PTS が正当な先行バッファである場合に復帰が誤発動しないよう、復帰は
+/// 「描画できない状態の継続時間」だけで判定する。そのため 1 秒を超える先行バッファを
+/// 意図的に積む用途では復帰が発動する。この定数はその制約を含めた復帰の方針である。
+const RESYNC_TIMEOUT_NS: u64 = 1_000_000_000;
 
 /// 入力検証: I420 フレームデータのサイズを検証する。
 pub fn validate_i420(y: &[u8], u: &[u8], v: &[u8], width: i32, height: i32) -> Result<()> {
@@ -321,7 +333,19 @@ pub fn validate_pixel_buffer_enqueue(format: VideoFormat, width: i32, height: i3
 pub struct VideoPlayerStats {
     pub video_queue_size: usize,
     pub audio_queue_ms: f64,
+    /// 破棄したフレームの合計数。
+    ///
+    /// `dropped_frames_queue_full` と `dropped_frames_late` と
+    /// `dropped_frames_resync` の合計になる。
     pub dropped_frames: i64,
+    /// 映像キューの上限を超えたため enqueue 時に破棄したフレーム数。
+    pub dropped_frames_queue_full: i64,
+    /// 表示時刻を過ぎていたため描画時に破棄したフレーム数。
+    pub dropped_frames_late: i64,
+    /// 映像のみ経路で最新フレームへ復帰するときに破棄したフレーム数。
+    pub dropped_frames_resync: i64,
+    /// 映像のみ経路で最新フレームへ復帰した回数。
+    pub resync_count: i64,
     pub repeated_frames: i64,
     pub video_pts_us: i64,
     pub audio_pts_us: i64,
@@ -367,6 +391,8 @@ struct VideoPlayerInner {
     video_only_started: bool,
     // 映像のみ経路で pause 開始時刻を保持し、再開時に壁時計へ加算する（None = 補正待ちなし）
     pause_started_ns: Option<u64>,
+    // 映像のみ経路で描画できない状態が始まった時刻 (None = 描画できている)
+    blocked_since_ns: Option<u64>,
 
     // 同期設定
     sync_threshold_us: i64,
@@ -375,6 +401,10 @@ struct VideoPlayerInner {
 
     // 統計
     dropped_frames: i64,
+    dropped_frames_queue_full: i64,
+    dropped_frames_late: i64,
+    dropped_frames_resync: i64,
+    resync_count: i64,
     repeated_frames: i64,
     total_frames_enqueued: i64,
     total_frames_rendered: i64,
@@ -398,7 +428,7 @@ struct VideoPlayerInner {
     // tex upload の最大値
     render_tex_max_us: u64,
 
-    // UI
+    // UI 関連
     show_stats_overlay: bool,
     key_callback: Option<Arc<dyn Fn(u32) -> bool + Send + Sync + 'static>>,
 
@@ -406,8 +436,25 @@ struct VideoPlayerInner {
     open: bool,
 }
 
+impl VideoPlayerInner {
+    /// 映像のみ経路で描画できない状態が始まった時刻を、まだ記録していなければ記録する。
+    ///
+    /// 遅延ドロップと早すぎる待ちの両方から呼ぶ。描画できたときと、キューが空の通常の
+    /// 待機では記録しない (後者では描画の機会が来ていないだけであるため)。
+    fn mark_blocked(&mut self, now_ns: u64) {
+        if self.blocked_since_ns.is_none() {
+            self.blocked_since_ns = Some(now_ns);
+        }
+    }
+}
+
 pub struct VideoPlayer {
     audio: AudioPlayer,
+    // 公開 API がすべて &self の同期メソッドで、描画・イベント処理・統計取得が
+    // 呼び出しスレッド内で完結する。状態を専用スレッドとチャネルへ移す構成も
+    // 検討したが、poll_events() や stats() のたびに同期往復が必要になり、SDL の
+    // ウィンドウ / レンダラを生成したスレッドで操作する制約も扱いにくくなるため、
+    // Mutex で保護する。
     inner: Mutex<VideoPlayerInner>,
 }
 
@@ -442,12 +489,17 @@ impl VideoPlayer {
                 first_video_pts_us: 0,
                 video_only_started: false,
                 pause_started_ns: None,
+                blocked_since_ns: None,
 
                 sync_threshold_us: 40_000,
                 max_video_queue_size: 5,
                 vsync_interval: 1,
 
                 dropped_frames: 0,
+                dropped_frames_queue_full: 0,
+                dropped_frames_late: 0,
+                dropped_frames_resync: 0,
+                resync_count: 0,
                 repeated_frames: 0,
                 total_frames_enqueued: 0,
                 total_frames_rendered: 0,
@@ -502,7 +554,7 @@ impl VideoPlayer {
     }
 
     /// stride 付き I420 フレームをキューに追加する。
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn enqueue_video_i420_strided(
         &self,
         y: &[u8],
@@ -555,7 +607,7 @@ impl VideoPlayer {
     }
 
     /// stride 付き NV12 フレームをキューに追加する。
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn enqueue_video_nv12_strided(
         &self,
         y: &[u8],
@@ -695,7 +747,7 @@ impl VideoPlayer {
     /// # Safety
     ///
     /// `pixel_buffer_ptr` は有効な CVPixelBuffer へのポインタでなければならない。
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub unsafe fn enqueue_video_pixel_buffer(
         &self,
         pixel_buffer_ptr: *mut std::ffi::c_void,
@@ -739,21 +791,28 @@ impl VideoPlayer {
     /// 音声が `Err` のときは映像側を一切触らない。
     pub fn play(&self) -> Result<()> {
         self.audio.play()?;
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
         // 映像のみ経路で pause 中に進んだ壁時計分を video_start_time_ns へ加算する。
         // 補正条件は pause_started_ns の有無のみ（音声開始の再判定はしない）。
         if let Some(pause_started) = inner.pause_started_ns.take() {
-            let now = unsafe { ffi::SDL_GetTicksNS() };
+            let now = unsafe { sys::SDL_GetTicksNS() };
             // 逆転時は加算をスキップし、フラグだけクリアする（巨大な unsigned 引き算を避ける）
             if now >= pause_started {
                 inner.video_start_time_ns += now - pause_started;
             }
         }
+        // pause 中に進んだ時間で復帰が誤発動しないよう、描画できない状態の計測をやり直す。
+        // 実際に再生を開始するときだけリセットする。再生中に呼ばれた play() でリセット
+        // すると、呼び出し側が毎フレーム play() を呼ぶ場合に復帰が永久に発動しない
         if !inner.playing {
             inner.playing = true;
             inner.has_played = true;
+            inner.blocked_since_ns = None;
             if inner.play_start_time_ns == 0 {
-                inner.play_start_time_ns = unsafe { ffi::SDL_GetTicksNS() };
+                inner.play_start_time_ns = unsafe { sys::SDL_GetTicksNS() };
                 inner.fps_calc_start_ns = 0;
             }
         }
@@ -768,16 +827,21 @@ impl VideoPlayer {
         self.audio.pause()?;
         // 映像のみ経路の判定に使う。audio.pause 成功後に読む（失敗時は映像側を触らない）
         let audio_started = self.audio.is_started();
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
         let was_playing = inner.playing;
         inner.playing = false;
+        // pause 中に経過した時間で復帰が誤発動しないよう、描画できない状態の計測をクリアする
+        inner.blocked_since_ns = None;
         // 映像のみかつ初回描画済みの pause 遷移時だけ開始時刻を記録する（上書きしない）
         if was_playing
             && inner.video_only_started
             && !audio_started
             && inner.pause_started_ns.is_none()
         {
-            inner.pause_started_ns = Some(unsafe { ffi::SDL_GetTicksNS() });
+            inner.pause_started_ns = Some(unsafe { sys::SDL_GetTicksNS() });
         }
         Ok(())
     }
@@ -788,7 +852,10 @@ impl VideoPlayer {
     /// 音声が `Err` のときは映像側を一切触らない。
     pub fn stop(&self) -> Result<()> {
         self.audio.stop()?;
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
         inner.playing = false;
         inner.has_played = false;
         inner.video_queue.clear();
@@ -797,7 +864,12 @@ impl VideoPlayer {
         inner.video_start_time_ns = 0;
         inner.first_video_pts_us = 0;
         inner.pause_started_ns = None;
+        inner.blocked_since_ns = None;
         inner.dropped_frames = 0;
+        inner.dropped_frames_queue_full = 0;
+        inner.dropped_frames_late = 0;
+        inner.dropped_frames_resync = 0;
+        inner.resync_count = 0;
         inner.repeated_frames = 0;
         inner.total_frames_enqueued = 0;
         inner.total_frames_rendered = 0;
@@ -816,7 +888,10 @@ impl VideoPlayer {
         let audio_clock_us = self.audio.audio_clock_us();
         let audio_started = self.audio.is_started();
 
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
 
         if !inner.open {
             return Ok(false);
@@ -841,7 +916,10 @@ impl VideoPlayer {
                 _ => {}
             }
         }
-        inner = self.inner.lock().unwrap();
+        inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
 
         if let Some((w, h)) = resize_event {
             inner.window_width = w;
@@ -866,13 +944,19 @@ impl VideoPlayer {
         if let Some(ref callback) = callback {
             for keycode in key_events {
                 if !callback(keycode) {
-                    let mut inner = self.inner.lock().unwrap();
+                    let mut inner = self
+                        .inner
+                        .lock()
+                        .expect("video player state mutex poisoned");
                     inner.open = false;
                     return Ok(false);
                 }
             }
         }
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
 
         // フレームレンダリング
         if inner.playing {
@@ -884,39 +968,66 @@ impl VideoPlayer {
 
     /// ウィンドウを閉じる。
     pub fn close(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
         inner.open = false;
     }
 
     pub fn is_open(&self) -> bool {
-        self.inner.lock().unwrap().open
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .open
     }
 
     pub fn is_playing(&self) -> bool {
-        self.inner.lock().unwrap().playing
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .playing
     }
 
     pub fn width(&self) -> i32 {
-        self.inner.lock().unwrap().window_width
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .window_width
     }
 
     pub fn height(&self) -> i32 {
-        self.inner.lock().unwrap().window_height
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .window_height
     }
 
     pub fn title(&self) -> String {
-        self.inner.lock().unwrap().title.clone()
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .title
+            .clone()
     }
 
     pub fn set_title(&self, title: &str) -> Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
         inner.window.set_title(title)?;
         inner.title = title.to_string();
         Ok(())
     }
 
     pub fn renderer_name(&self) -> String {
-        self.inner.lock().unwrap().renderer.name().to_string()
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .renderer
+            .name()
+            .to_string()
     }
 
     pub fn volume(&self) -> f32 {
@@ -931,7 +1042,10 @@ impl VideoPlayer {
     where
         F: Fn(u32) -> bool + Send + Sync + 'static,
     {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
         inner.key_callback =
             callback.map(|f| Arc::new(f) as Arc<dyn Fn(u32) -> bool + Send + Sync>);
     }
@@ -941,18 +1055,29 @@ impl VideoPlayer {
         let audio_clock = self.audio.audio_clock_us();
         let audio_queue_ms = self.audio.audio_queue_ms();
 
-        let inner = self.inner.lock().unwrap();
+        let inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
 
         let video_buffer_ms = if inner.video_queue.len() >= 2 {
-            let first_pts = inner.video_queue.front().unwrap().pts_us;
-            let last_pts = inner.video_queue.back().unwrap().pts_us;
+            let first_pts = inner
+                .video_queue
+                .front()
+                .expect("video queue must contain a front frame when its length is at least 2")
+                .pts_us;
+            let last_pts = inner
+                .video_queue
+                .back()
+                .expect("video queue must contain a back frame when its length is at least 2")
+                .pts_us;
             (last_pts - first_pts) as f64 / 1000.0
         } else {
             0.0
         };
 
         let elapsed_ms = if inner.has_played {
-            let now = unsafe { ffi::SDL_GetTicksNS() };
+            let now = unsafe { sys::SDL_GetTicksNS() };
             (now - inner.play_start_time_ns) as f64 / 1_000_000.0
         } else {
             0.0
@@ -968,6 +1093,10 @@ impl VideoPlayer {
             video_queue_size: inner.video_queue.len(),
             audio_queue_ms,
             dropped_frames: inner.dropped_frames,
+            dropped_frames_queue_full: inner.dropped_frames_queue_full,
+            dropped_frames_late: inner.dropped_frames_late,
+            dropped_frames_resync: inner.dropped_frames_resync,
+            resync_count: inner.resync_count,
             repeated_frames: inner.repeated_frames,
             video_pts_us: inner.last_video_pts_us,
             audio_pts_us: audio_clock,
@@ -1001,34 +1130,54 @@ impl VideoPlayer {
     }
 
     pub fn set_max_video_queue_size(&self, size: usize) {
-        self.inner.lock().unwrap().max_video_queue_size = size;
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .max_video_queue_size = size;
     }
 
     pub fn max_video_queue_size(&self) -> usize {
-        self.inner.lock().unwrap().max_video_queue_size
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .max_video_queue_size
     }
 
     /// 映像キューをクリアし、タイミング状態をリセットする。
     pub fn drain_video(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
         inner.video_queue.clear();
         inner.video_only_started = false;
         inner.video_start_time_ns = 0;
         inner.first_video_pts_us = 0;
         inner.pause_started_ns = None;
+        // キューを捨てて時計をリセットするため、描画できない状態の計測もクリアする
+        inner.blocked_since_ns = None;
     }
 
     pub fn set_stats_overlay(&self, enabled: bool) {
-        self.inner.lock().unwrap().show_stats_overlay = enabled;
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .show_stats_overlay = enabled;
     }
 
     pub fn stats_overlay(&self) -> bool {
-        self.inner.lock().unwrap().show_stats_overlay
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .show_stats_overlay
     }
 
     /// VSync を設定する (0: 無効, 1: 有効)。
     pub fn set_vsync(&self, interval: i32) -> Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
         inner.vsync_interval = interval;
         inner.renderer.set_vsync(interval)
     }
@@ -1038,7 +1187,10 @@ impl VideoPlayer {
     fn enqueue_frame(&self, frame: VideoFrame) -> Result<()> {
         let frame_size_bytes = frame.data.size_bytes() as i64;
 
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("video player state mutex poisoned");
 
         if inner.has_played && !inner.playing {
             return Err(Error::NotPlaying);
@@ -1051,6 +1203,7 @@ impl VideoPlayer {
             while inner.video_queue.len() >= inner.max_video_queue_size {
                 inner.video_queue.pop_front();
                 inner.dropped_frames += 1;
+                inner.dropped_frames_queue_full += 1;
             }
         }
 
@@ -1058,6 +1211,11 @@ impl VideoPlayer {
         Ok(())
     }
 
+    /// 再生時計に合わせてキュー先頭のフレームを描画する。
+    ///
+    /// 音声が開始している経路では音声時計を正として使う。映像のみ経路では初回にキュー
+    /// 先頭フレームの PTS を単調時計へ対応付けて再生時計の基準にし、描画できない状態が
+    /// `RESYNC_TIMEOUT_NS` 以上続いた場合は最新フレームへ復帰する。
     fn render_next_frame(
         inner: &mut VideoPlayerInner,
         audio_clock_us: i64,
@@ -1067,20 +1225,43 @@ impl VideoPlayer {
             return Ok(());
         }
 
+        // フレーム未到着の通常の待機。ここでは blocked_since_ns を設定しない
         if inner.video_queue.is_empty() {
             return Ok(());
         }
 
+        // 映像のみ経路の復帰判定。未来の PTS が正当な先行バッファである場合に復帰が
+        // 誤発動しないよう、描画できない状態が RESYNC_TIMEOUT_NS 以上継続したときだけ
+        // 復帰する。音声が開始している経路では音声時計を正とし、再基準化はしない
+        let video_only_now_ns = if audio_started {
+            0
+        } else {
+            unsafe { sys::SDL_GetTicksNS() }
+        };
+        if !audio_started
+            && let Some(blocked_since_ns) = inner.blocked_since_ns
+            && video_only_now_ns.saturating_sub(blocked_since_ns) >= RESYNC_TIMEOUT_NS
+        {
+            return Self::resync_to_latest_frame(inner, video_only_now_ns, audio_clock_us);
+        }
+
         // クロック取得
         let clock_us = if audio_started {
+            // 音声時計が正。ここで時計の再基準化はしない
             audio_clock_us
         } else {
             if !inner.video_only_started {
-                inner.video_start_time_ns = unsafe { ffi::SDL_GetTicksNS() };
-                inner.first_video_pts_us = inner.video_queue.front().unwrap().pts_us;
+                // 映像のみ経路は、最初に描画処理へ入った時点のキュー先頭 PTS を
+                // 単調時計へ対応付けて再生時計の基準にする
+                inner.video_start_time_ns = unsafe { sys::SDL_GetTicksNS() };
+                inner.first_video_pts_us = inner
+                    .video_queue
+                    .front()
+                    .expect("video queue must not be empty after the empty check")
+                    .pts_us;
                 inner.video_only_started = true;
             }
-            let elapsed_ns = unsafe { ffi::SDL_GetTicksNS() } - inner.video_start_time_ns;
+            let elapsed_ns = unsafe { sys::SDL_GetTicksNS() } - inner.video_start_time_ns;
             let elapsed_us = elapsed_ns as i64 / 1000;
             inner.first_video_pts_us + elapsed_us
         };
@@ -1091,28 +1272,83 @@ impl VideoPlayer {
                 break;
             }
 
-            let diff = inner.video_queue.front().unwrap().pts_us - clock_us;
+            let diff = inner
+                .video_queue
+                .front()
+                .expect("video queue must not be empty at the top of the sync loop")
+                .pts_us
+                - clock_us;
 
             if diff < -inner.sync_threshold_us {
                 // フレームが遅すぎる → ドロップ
                 inner.video_queue.pop_front();
                 inner.dropped_frames += 1;
+                inner.dropped_frames_late += 1;
+                // 映像のみ経路では、描画できない状態が始まった時刻を記録する
+                if !audio_started {
+                    inner.mark_blocked(video_only_now_ns);
+                }
                 continue;
             }
 
             if diff > inner.sync_threshold_us {
                 // フレームが早すぎる → リピート
                 inner.repeated_frames += 1;
+                // 映像のみ経路では、描画できない状態が始まった時刻を記録する
+                if !audio_started {
+                    inner.mark_blocked(video_only_now_ns);
+                }
                 break;
             }
 
             // 範囲内 → レンダリング
-            let frame = inner.video_queue.pop_front().unwrap();
+            let frame = inner
+                .video_queue
+                .pop_front()
+                .expect("video queue must not be empty before rendering a frame");
             Self::render_frame_internal(inner, &frame, audio_clock_us)?;
+            // 描画できたので、描画できない状態の計測をクリアする
+            inner.blocked_since_ns = None;
             break;
         }
 
         Ok(())
+    }
+
+    /// 映像のみ経路で描画できない状態が続いたときに、最新フレームへ復帰する。
+    ///
+    /// キューの最後の 1 枚以外を破棄し、そのフレームの PTS に再生時計を再基準化して
+    /// その場で描画する。音声が開始している経路では呼ばない (A/V 同期が壊れるため)。
+    fn resync_to_latest_frame(
+        inner: &mut VideoPlayerInner,
+        now_ns: u64,
+        audio_clock_us: i64,
+    ) -> Result<()> {
+        let latest_pts_us = inner
+            .video_queue
+            .back()
+            .expect("video queue must not be empty before resyncing")
+            .pts_us;
+
+        // 時計との差が固定されたままになった古いフレームは使い道がないため捨てる
+        let discard_count = inner.video_queue.len() - 1;
+        inner.video_queue.drain(..discard_count);
+        let discard_count = discard_count as i64;
+        inner.dropped_frames += discard_count;
+        inner.dropped_frames_resync += discard_count;
+
+        // 最新フレームの PTS を現在時刻へ対応付け直す
+        inner.video_start_time_ns = now_ns;
+        inner.first_video_pts_us = latest_pts_us;
+        inner.video_only_started = true;
+        inner.resync_count += 1;
+        inner.blocked_since_ns = None;
+
+        let frame = inner
+            .video_queue
+            .pop_front()
+            .expect("video queue must contain exactly one latest frame after draining");
+        Self::render_frame_internal(inner, &frame, audio_clock_us)
     }
 
     fn render_frame_internal(
@@ -1230,7 +1466,7 @@ impl VideoPlayer {
 
         let present_start = std::time::Instant::now();
         inner.renderer.present()?;
-        let present_end_ns = unsafe { ffi::SDL_GetTicksNS() };
+        let present_end_ns = unsafe { sys::SDL_GetTicksNS() };
         inner.render_present_us += present_start.elapsed().as_micros() as u64;
         inner.render_count += 1;
 
@@ -1248,7 +1484,7 @@ impl VideoPlayer {
 
         // FPS 計算
         inner.fps_frame_count += 1;
-        let now_ns = unsafe { ffi::SDL_GetTicksNS() };
+        let now_ns = unsafe { sys::SDL_GetTicksNS() };
         if inner.fps_calc_start_ns == 0 {
             inner.fps_calc_start_ns = now_ns;
         }
@@ -1325,7 +1561,7 @@ impl VideoPlayer {
             format!(
                 "Elapsed: {:.1}s",
                 if inner.has_played {
-                    let now = unsafe { ffi::SDL_GetTicksNS() };
+                    let now = unsafe { sys::SDL_GetTicksNS() };
                     (now - inner.play_start_time_ns) as f64 / 1_000_000_000.0
                 } else {
                     0.0
@@ -1342,8 +1578,20 @@ impl VideoPlayer {
             format!(
                 "Video buffer: {:.1}ms",
                 if inner.video_queue.len() >= 2 {
-                    let first = inner.video_queue.front().unwrap().pts_us;
-                    let last = inner.video_queue.back().unwrap().pts_us;
+                    let first = inner
+                        .video_queue
+                        .front()
+                        .expect(
+                            "video queue must contain a front frame when its length is at least 2",
+                        )
+                        .pts_us;
+                    let last = inner
+                        .video_queue
+                        .back()
+                        .expect(
+                            "video queue must contain a back frame when its length is at least 2",
+                        )
+                        .pts_us;
                     (last - first) as f64 / 1000.0
                 } else {
                     0.0

@@ -1,4 +1,4 @@
-use raw_player::Error;
+use raw_player::error::Error;
 
 #[test]
 fn error_is_std_error() {
