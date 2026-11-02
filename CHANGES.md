@@ -11,6 +11,10 @@
 
 ## develop
 
+## 2026.3.0
+
+**リリース日**: 2026-11-02
+
 - [CHANGE] Ubuntu 22.04 のサポートを終了する
   - @voluntas
 - [CHANGE] MSRV (rust-version) を 1.95 に上げる
@@ -21,7 +25,7 @@
   - @voluntas
 - [ADD] Ubuntu 26.04 のサポートを追加する
   - @voluntas
-- [ADD] SDL のシグナルハンドラを登録せずに初期化する init_without_signal_handlers() を追加する
+- [ADD] SDL のシグナルハンドラを登録せずに初期化する `init_without_signal_handlers()` を追加する
   - @voluntas
 - [UPDATE] SDL 3.4.18 にアップデートする
   - @voluntas
