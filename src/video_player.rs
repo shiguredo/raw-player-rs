@@ -538,19 +538,23 @@ impl VideoPlayer {
         pts_us: i64,
     ) -> Result<()> {
         validate_i420(y, u, v, width, height)?;
-        self.enqueue_frame(VideoFrame {
-            pts_us,
-            width,
-            height,
-            y_pitch: width,
-            uv_pitch: width / 2,
-            format: VideoFormat::I420,
-            data: FrameData::Planar {
-                y: y.to_vec(),
-                u: u.to_vec(),
-                v: v.to_vec(),
-            },
-        })
+        self.enqueue_i420_frame(y.to_vec(), u.to_vec(), v.to_vec(), width, height, pts_us)
+    }
+
+    /// I420 フレームの Y / U / V プレーンをコピーせずにキューへ移す。
+    ///
+    /// 各プレーンの長さと寸法は [`Self::enqueue_video_i420`] と同じ規則で検証する。
+    pub fn enqueue_video_i420_owned(
+        &self,
+        y: Vec<u8>,
+        u: Vec<u8>,
+        v: Vec<u8>,
+        width: i32,
+        height: i32,
+        pts_us: i64,
+    ) -> Result<()> {
+        validate_i420(&y, &u, &v, width, height)?;
+        self.enqueue_i420_frame(y, u, v, width, height, pts_us)
     }
 
     /// stride 付き I420 フレームをキューに追加する。
@@ -1183,6 +1187,27 @@ impl VideoPlayer {
     }
 
     // --- 内部メソッド ---
+
+    /// 寸法と長さを検証済みの I420 プレーンを、所有権ごと描画キューへ渡す。
+    fn enqueue_i420_frame(
+        &self,
+        y: Vec<u8>,
+        u: Vec<u8>,
+        v: Vec<u8>,
+        width: i32,
+        height: i32,
+        pts_us: i64,
+    ) -> Result<()> {
+        self.enqueue_frame(VideoFrame {
+            pts_us,
+            width,
+            height,
+            y_pitch: width,
+            uv_pitch: width / 2,
+            format: VideoFormat::I420,
+            data: FrameData::Planar { y, u, v },
+        })
+    }
 
     fn enqueue_frame(&self, frame: VideoFrame) -> Result<()> {
         let frame_size_bytes = frame.data.size_bytes() as i64;

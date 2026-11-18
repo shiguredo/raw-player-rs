@@ -67,6 +67,36 @@ fn poll_until_rendered(player: &VideoPlayer) {
     panic!("描画が開始されなかった");
 }
 
+/// 所有権を渡す I420 API は、不正なプレーンを拒否し、正しいフレームを描画できる。
+#[test]
+fn owned_i420_validates_and_renders() {
+    let _guard = acquire_sdl();
+    let player = new_video_only_player("test-owned-i420");
+
+    // 16 × 16 の V プレーンは 64 バイト必要であり、不足時はキューを更新しない。
+    let error = player
+        .enqueue_video_i420_owned(vec![0; 256], vec![128; 64], vec![128; 63], 16, 16, 0)
+        .expect_err("V プレーンの不足を拒否すること");
+    assert_invalid_argument(error);
+    assert_eq!(
+        player.stats().total_frames_enqueued,
+        0,
+        "不正なフレームを積まないこと"
+    );
+
+    // 3 プレーンの所有権を渡し、呼び出し元のバッファに依存せず描画できることを確認する。
+    player
+        .enqueue_video_i420_owned(vec![16; 256], vec![128; 64], vec![128; 64], 16, 16, 0)
+        .expect("I420 フレームを積めること");
+    player.play().expect("再生を開始できること");
+    poll_until_rendered(&player);
+    assert_eq!(
+        player.stats().total_frames_rendered,
+        1,
+        "有効なフレームを描画すること"
+    );
+}
+
 /// 30 fps 相当のペースで指定回数だけ映像を投入して poll_events する。
 ///
 /// CI の実行速度に依存しないよう、実時間の期限ではなく回数で終了を決める。`sleep` を
