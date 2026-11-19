@@ -51,6 +51,24 @@ impl Window {
         }
     }
 
+    /// タイトルバーや枠を除いたウィンドウの縦横比を、幅 ÷ 高さで指定する。
+    /// 0.0 で制限を解除する。負数や非有限値、SDL の設定失敗はエラーを返す。
+    pub fn set_aspect_ratio(&mut self, aspect_ratio: f32) -> Result<()> {
+        if !aspect_ratio.is_finite() || aspect_ratio < 0.0 {
+            return Err(Error::invalid_argument(
+                "aspect ratio must be finite and non-negative",
+            ));
+        }
+        // 下限と上限を揃えると、SDL がウィンドウシステムに比率の固定を要求する。
+        let result =
+            unsafe { sys::SDL_SetWindowAspectRatio(self.raw.as_ptr(), aspect_ratio, aspect_ratio) };
+        if result {
+            Ok(())
+        } else {
+            Err(Error::from_sdl())
+        }
+    }
+
     pub fn set_title(&mut self, title: &str) -> Result<()> {
         let c_title =
             CString::new(title).map_err(|_| Error::invalid_argument("title contains null byte"))?;

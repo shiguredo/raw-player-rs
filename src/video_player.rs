@@ -1015,6 +1015,16 @@ impl VideoPlayer {
             .clone()
     }
 
+    /// リサイズ時に映像ウィンドウの内容領域を保つ比率を、幅 ÷ 高さで指定する。
+    /// 0.0 で制限を解除する。負数や非有限値、SDL の設定失敗はエラーを返す。
+    pub fn set_window_aspect_ratio(&self, aspect_ratio: f32) -> Result<()> {
+        self.inner
+            .lock()
+            .expect("video player state mutex poisoned")
+            .window
+            .set_aspect_ratio(aspect_ratio)
+    }
+
     pub fn set_title(&self, title: &str) -> Result<()> {
         let mut inner = self
             .inner
